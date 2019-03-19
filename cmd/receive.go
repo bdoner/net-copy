@@ -22,27 +22,59 @@ package cmd
 
 import (
 	"fmt"
+	"log"
+	"net"
 
+	"github.com/bdoner/net-copy/shared"
 	"github.com/spf13/cobra"
 )
+
+type receiveConf struct {
+	listenPort uint16
+	outDir     string
+	setupDone  bool
+}
+
+var conf receiveConf
 
 // receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
 	Use:   "receive",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Set net-copy to receive files",
+	/*Long: `A longer description that spans multiple lines and likely contains examples
+	and usage of using your command. For example:
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Cobra is a CLI library for Go that empowers applications.
+	This application is a tool to generate the needed files
+	to quickly create a Cobra application.`,*/
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("receive called")
+		l, err := net.Listen("tcp4", fmt.Sprintf(":%d", conf.listenPort))
+		if err != nil {
+			log.Fatalf("netcopy/receive: could not listen on port %d\n", conf.listenPort)
+		}
+
+		fmt.Printf("Listening on %s\n", l.Addr().String())
+		conn, err := l.Accept()
+		if err != nil {
+			log.Fatalf("netcopy/receive: could not accept initial connection\n")
+		}
+
+		var message shared.SetupMessage
+		message.FromStream(&conn)
+
+		fmt.Printf("%d\n", message.NumFiles)
+		for _, f := range *(message.Files) {
+			fmt.Printf("%v\n", f)
+		}
+
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(receiveCmd)
+
+	receiveCmd.Flags().Uint16VarP(&conf.listenPort, "listen-port", "l", 0, "Set the port to listen to. If not set a random, available port is selected")
+	receiveCmd.Flags().StringVarP(&conf.outDir, "out-dir", "o", ".", "Set the directory to output files to.")
 
 	// Here you will define your flags and configuration settings.
 
