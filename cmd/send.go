@@ -21,10 +21,18 @@
 package cmd
 
 import (
-	"fmt"
+	"net"
 
 	"github.com/spf13/cobra"
 )
+
+type sendConf struct {
+	connectAddr string
+	connectPort uint16
+	inDir       string
+}
+
+var sconf sendConf
 
 // sendCmd represents the send command
 var sendCmd = &cobra.Command{
@@ -37,14 +45,22 @@ var sendCmd = &cobra.Command{
 	This application is a tool to generate the needed files
 	to quickly create a Cobra application.`,*/
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("send called")
+		conn := createConnection()
 	},
+}
+
+func createConnection() net.Conn {
+	net.Dial(sconf.connectAddr)
 }
 
 func init() {
 	rootCmd.AddCommand(sendCmd)
 
 	// Here you will define your flags and configuration settings.
+	sendCmd.Flags().StringVarP(&sconf.connectAddr, "host", "a", "127.0.0.1", "Define which host to connect to")
+	sendCmd.Flags().Uint16VarP(&sconf.connectPort, "port", "p", 0, "Receivers listen port to connect to.")
+	sendCmd.MarkFlagRequired("host")
+	sendCmd.MarkFlagRequired("port")
 
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:

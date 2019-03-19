@@ -21,6 +21,7 @@
 package cmd
 
 import (
+	"encoding/gob"
 	"fmt"
 	"log"
 	"net"
@@ -32,10 +33,9 @@ import (
 type receiveConf struct {
 	listenPort uint16
 	outDir     string
-	setupDone  bool
 }
 
-var conf receiveConf
+var rconf receiveConf
 
 // receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
@@ -48,19 +48,15 @@ var receiveCmd = &cobra.Command{
 	This application is a tool to generate the needed files
 	to quickly create a Cobra application.`,*/
 	Run: func(cmd *cobra.Command, args []string) {
-		l, err := net.Listen("tcp4", fmt.Sprintf(":%d", conf.listenPort))
-		if err != nil {
-			log.Fatalf("netcopy/receive: could not listen on port %d\n", conf.listenPort)
-		}
 
-		fmt.Printf("Listening on %s\n", l.Addr().String())
-		conn, err := l.Accept()
-		if err != nil {
-			log.Fatalf("netcopy/receive: could not accept initial connection\n")
-		}
+		conn := getConnection()
 
 		var message shared.SetupMessage
-		message.FromStream(&conn)
+		dec := gob.NewDecoder(conn)
+		err := dec.Decode(message)
+		if err != nil {
+			log.Fatalf("net-copy/receive: error decoding SetupMessage: %v", err)
+		}
 
 		fmt.Printf("%d\n", message.NumFiles)
 		for _, f := range *(message.Files) {
@@ -70,11 +66,26 @@ var receiveCmd = &cobra.Command{
 	},
 }
 
+func getConnection() net.Conn {
+	l, err := net.Listen("tcp4", fmt.Sprintf(":%d", rconf.listenPort))
+	if err != nil {
+		log.Fatalf("netcopy/receive: could not listen on port %d\n", rconf.listenPort)
+	}
+
+	fmt.Printf("Listening on %s\n", l.Addr().String())
+	conn, err := l.Accept()
+	if err != nil {
+		log.Fatalf("netcopy/receive: could not accept initial connection\n")
+	}
+
+	return conn
+}
+
 func init() {
 	rootCmd.AddCommand(receiveCmd)
 
-	receiveCmd.Flags().Uint16VarP(&conf.listenPort, "listen-port", "l", 0, "Set the port to listen to. If not set a random, available port is selected")
-	receiveCmd.Flags().StringVarP(&conf.outDir, "out-dir", "o", ".", "Set the directory to output files to.")
+	receiveCmd.Flags().Uint16VarP(&rconf.listenPort, "listen-port", "p", 0, "Set the port to listen to. If not set a random, available port is selected")
+	receiveCmd.Flags().StringVarP(&rconf.outDir, "out-dir", "d", ".", "Set the directory to output files to.")
 
 	// Here you will define your flags and configuration settings.
 
