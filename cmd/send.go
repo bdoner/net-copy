@@ -23,10 +23,12 @@ package cmd
 import (
 	"encoding/gob"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"os"
+	"path"
 
 	"github.com/google/uuid"
 
@@ -51,20 +53,50 @@ var sendCmd = &cobra.Command{
 
 		conn := createConnection()
 		defer conn.Close()
-		enc := gob.NewEncoder(conn)
 
+		enc := gob.NewEncoder(conn)
 		enc.Encode(ncproto.MsgConfig)
 		enc.Encode(conf)
 
+		readBuffer := make([]byte, conf.ReadBufferSize)
 		files := make([]ncproto.File, 0)
 		collectFiles(conf.WorkingDirectory, &files)
 		for _, file := range files {
 			fmt.Printf("%s\n", file.Name)
+
+			fp, err := os.Open(file.FullPath(&conf))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error opening file %s", path.Join(file.RelativePath, file.Name))
+			}
+
 			enc.Encode(ncproto.MsgFile)
 			enc.Encode(file)
+			sentChunks := 0
+			for {
+				n, err := fp.Read(readBuffer)
+				if n == 0 && err == io.EOF {
+					break
+				}
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error reading file %s", path.Join(file.RelativePath, file.Name))
+					break
+				}
+
+				fchunk := ncproto.FileChunk{
+					ID:           file.ID,
+					ConnectionID: conf.ConnectionID,
+					Length:       n,
+					Data:         readBuffer,
+				}
+				sentChunks++
+				//fmt.Printf("sending chunk %d\n", sentChunks)
+				enc.Encode(fchunk)
+			}
+
 		}
 
 		enc.Encode(ncproto.MsgClose)
+		enc.Encode(ncproto.ConnectionClose{ConnectionID: conf.ConnectionID})
 
 		//time.Sleep(time.Minute * 1)
 		//files := collectFiles()
@@ -79,13 +111,14 @@ func collectFiles(dir string, files *[]ncproto.File) {
 
 	for _, v := range fs {
 		if v.IsDir() {
-			collectFiles(v.Name(), files)
+			collectFiles(path.Join(conf.WorkingDirectory, dir, v.Name()), files)
 		} else {
 			nf := ncproto.File{
-				ID:       uuid.New(),
-				Name:     v.Name(),
-				FileSize: v.Size(),
-				Data:     ioutil.ReadFile,
+				ID:           uuid.New(),
+				ConnectionID: conf.ConnectionID,
+				FileSize:     v.Size(),
+				Name:         v.Name(),
+				RelativePath: dir[len(conf.WorkingDirectory):],
 			}
 			*files = append(*files, nf)
 		}
@@ -120,6 +153,9 @@ func init() {
 		}
 		conf.WorkingDirectory = wd
 	}
+
+	conf.ConnectionID = uuid.New()
+	conf.ReadBufferSize = 4096
 
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:

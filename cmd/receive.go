@@ -24,6 +24,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
 
@@ -62,6 +63,8 @@ var receiveCmd = &cobra.Command{
 				log.Fatalf("net-copy/receive: error decoding Message.Data: %v", err)
 			}
 			conf.Merge(cConf)
+			fmt.Printf("Accepted connection from %s\n", conn.RemoteAddr().String())
+
 		} else {
 			log.Fatal("First message has to be of type MsgConfigure\n")
 		}
@@ -81,21 +84,50 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 
 		switch messageType {
 		case ncproto.MsgClose:
+			var cc ncproto.ConnectionClose
+			err := dec.Decode(&cc)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "net-copy/receive: error decoding close message. %v\n", err)
+			}
+			if cc.ConnectionID != conf.ConnectionID {
+				fmt.Fprintf(os.Stderr, "net-copy/receive: got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
+				continue
+			}
 			fmt.Println("client says done. closing connection.")
 			(*conn).Close()
 			os.Exit(0)
 
 		case ncproto.MsgFile:
-			var f ncproto.File
-			err := dec.Decode(&f)
+			var file ncproto.File
+			err := dec.Decode(&file)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "net-copy/receive: error decoding file message. %v\n", err)
 			}
+			if file.ConnectionID != conf.ConnectionID {
+				fmt.Fprintf(os.Stderr, "net-copy/receive: got close message from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
+				continue
+			}
+			fmt.Printf("Got file %s of size %s\n", file.Name, file.PrettySize())
+			chunks := uint64(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
+			//fmt.Printf("Expecting %d chunks\n", chunks)
 
-			fmt.Printf("Got file %s of size %s\n", f.Name, f.PrettySize())
+			var receivedChunk ncproto.FileChunk
+			for c := uint64(0); c <= chunks; c++ {
+				err := dec.Decode(&receivedChunk)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error reading chunk %d of %d\n", c, chunks)
+				}
+				if receivedChunk.ConnectionID != conf.ConnectionID {
+					fmt.Fprintf(os.Stderr, "got file chunk from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
+					continue
+				}
+
+				fmt.Printf("Appending %d bytes to file %s in chunk %d of %d\n", receivedChunk.Length, file.FullPath(&conf), c, chunks)
+			}
 
 		case ncproto.MsgConfig:
-			log.Fatal("net-copy/receive: initial MsgConfig already received.\n")
+			fmt.Fprintf(os.Stderr, "net-copy/receive: initial MsgConfig already received.\n")
+			continue
 		}
 	}
 }

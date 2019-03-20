@@ -2,6 +2,7 @@ package ncproto
 
 import (
 	"fmt"
+	"path"
 
 	"github.com/google/uuid"
 )
@@ -27,6 +28,8 @@ type Config struct {
 	Port             uint16
 	WorkingDirectory string
 	Threads          uint16
+	ConnectionID     uuid.UUID
+	ReadBufferSize   uint32
 }
 
 // Merge two Config's
@@ -35,18 +38,35 @@ func (c *Config) Merge(conf Config) {
 	if conf.Threads < c.Threads {
 		c.Threads = conf.Threads
 	}
-
+	c.ConnectionID = conf.ConnectionID
+	c.ReadBufferSize = conf.ReadBufferSize
 }
-
-// IReadFiler is an interface for ioutil.ReadFile
-type IReadFiler func(name string) ([]byte, error)
 
 // File describes a file to be sent/received
 type File struct {
-	ID       uuid.UUID
-	FileSize int64
-	Name     string
-	Data     IReadFiler
+	ID           uuid.UUID
+	ConnectionID uuid.UUID
+	FileSize     int64
+	Name         string
+	RelativePath string
+}
+
+// FileChunk is the actual file data being sent
+type FileChunk struct {
+	ID           uuid.UUID
+	ConnectionID uuid.UUID
+	Length       int
+	Data         []byte
+}
+
+// FullPath returns the absolute path of where a file should be located on disk according to a given config
+func (f *File) FullPath(c *Config) string {
+	return path.Join(c.WorkingDirectory, f.RelativePath, f.Name)
+}
+
+// ConnectionClose closes the connection when sent from client to server
+type ConnectionClose struct {
+	ConnectionID uuid.UUID
 }
 
 // PrettySize returns a human readable file size
