@@ -25,17 +25,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 
-	"github.com/bdoner/net-copy/shared"
+	"github.com/bdoner/net-copy/ncproto"
 	"github.com/spf13/cobra"
 )
 
-type receiveConf struct {
-	listenPort uint16
-	outDir     string
-}
-
-var rconf receiveConf
+var rconf ncproto.Config
 
 // receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
@@ -50,26 +46,64 @@ var receiveCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 
 		conn := getConnection()
+		defer conn.Close()
 
-		var message shared.SetupMessage
+		var messageType ncproto.MessageType
 		dec := gob.NewDecoder(conn)
-		err := dec.Decode(&message)
+		err := dec.Decode(&messageType)
 		if err != nil {
-			log.Fatalf("net-copy/receive: error decoding SetupMessage: %v", err)
+			log.Fatalf("net-copy/receive: error decoding Message: %v", err)
 		}
 
-		fmt.Printf("%d\n", message.NumFiles)
-		for _, f := range *(message.Files) {
-			fmt.Printf("%v\n", f)
+		if messageType == ncproto.MsgConfig {
+			var cConf ncproto.Config
+			err := dec.Decode(&cConf)
+			if err != nil {
+				log.Fatalf("net-copy/receive: error decoding Message.Data: %v", err)
+			}
+			conf.Merge(cConf)
+		} else {
+			log.Fatal("First message has to be of type MsgConfigure\n")
 		}
+
+		loop(dec, &conn)
 
 	},
 }
 
+func loop(dec *gob.Decoder, conn *net.Conn) {
+	for {
+		var messageType ncproto.MessageType
+		err := dec.Decode(&messageType)
+		if err != nil {
+			log.Fatalf("net-copy/receive: error decoding Message: %v", err)
+		}
+
+		switch messageType {
+		case ncproto.MsgClose:
+			fmt.Println("client says done. closing connection.")
+			(*conn).Close()
+			os.Exit(0)
+
+		case ncproto.MsgFile:
+			var f ncproto.File
+			err := dec.Decode(&f)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "net-copy/receive: error decoding file message. %v\n", err)
+			}
+
+			fmt.Printf("Got file %s of size %s\n", f.Name, f.PrettySize())
+
+		case ncproto.MsgConfig:
+			log.Fatal("net-copy/receive: initial MsgConfig already received.\n")
+		}
+	}
+}
+
 func getConnection() net.Conn {
-	l, err := net.Listen("tcp4", fmt.Sprintf(":%d", rconf.listenPort))
+	l, err := net.Listen("tcp4", fmt.Sprintf(":%d", conf.Port))
 	if err != nil {
-		log.Fatalf("netcopy/receive: could not listen on port %d\n", rconf.listenPort)
+		log.Fatalf("netcopy/receive: could not listen on port %d\n", conf.Port)
 	}
 
 	fmt.Printf("Listening on %s\n", l.Addr().String())
@@ -84,9 +118,16 @@ func getConnection() net.Conn {
 func init() {
 	rootCmd.AddCommand(receiveCmd)
 
-	receiveCmd.Flags().Uint16VarP(&rconf.listenPort, "port", "p", 0, "Set the port to listen to. If not set a random, available port is selected")
-	receiveCmd.Flags().StringVarP(&rconf.outDir, "out-dir", "d", ".", "Set the directory to output files to.")
+	receiveCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "Set the port to listen to. If not set a random, available port is selected")
+	receiveCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "Set the directory to output files to.")
 
+	if conf.WorkingDirectory == "." {
+		wd, err := os.Getwd()
+		if err != nil {
+			log.Fatalf("net-copy/send: could not get cwd. Please specify a working directory manually: %v\n", err)
+		}
+		conf.WorkingDirectory = wd
+	}
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command

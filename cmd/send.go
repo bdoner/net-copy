@@ -23,23 +23,19 @@ package cmd
 import (
 	"encoding/gob"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
-	"time"
+	"os"
 
 	"github.com/google/uuid"
 
-	"github.com/bdoner/net-copy/shared"
+	"github.com/bdoner/net-copy/ncproto"
+
 	"github.com/spf13/cobra"
 )
 
-type sendConf struct {
-	connectAddr string
-	connectPort uint16
-	inDir       string
-}
-
-var sconf sendConf
+var conf ncproto.Config
 
 // sendCmd represents the send command
 var sendCmd = &cobra.Command{
@@ -53,33 +49,52 @@ var sendCmd = &cobra.Command{
 	to quickly create a Cobra application.`,*/
 	Run: func(cmd *cobra.Command, args []string) {
 
-		m := collectFiles()
 		conn := createConnection()
-
+		defer conn.Close()
 		enc := gob.NewEncoder(conn)
-		enc.Encode(m)
 
-		time.Sleep(time.Minute * 1)
+		enc.Encode(ncproto.MsgConfig)
+		enc.Encode(conf)
+
+		files := make([]ncproto.File, 0)
+		collectFiles(conf.WorkingDirectory, &files)
+		for _, file := range files {
+			fmt.Printf("%s\n", file.Name)
+			enc.Encode(ncproto.MsgFile)
+			enc.Encode(file)
+		}
+
+		enc.Encode(ncproto.MsgClose)
+
+		//time.Sleep(time.Minute * 1)
+		//files := collectFiles()
 	},
 }
 
-func collectFiles() shared.SetupMessage {
-	fs := make([]shared.NCFile, 1)
-	fs[0] = shared.NCFile{
-		ID:       uuid.New(),
-		FileSize: 1111,
-		Name:     "testfile.bin",
-	}
-	m := shared.SetupMessage{
-		NumFiles: 1,
-		Files:    &fs,
+func collectFiles(dir string, files *[]ncproto.File) {
+	fs, err := ioutil.ReadDir(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading %s. %v\n", dir, err)
 	}
 
-	return m
+	for _, v := range fs {
+		if v.IsDir() {
+			collectFiles(v.Name(), files)
+		} else {
+			nf := ncproto.File{
+				ID:       uuid.New(),
+				Name:     v.Name(),
+				FileSize: v.Size(),
+				Data:     ioutil.ReadFile,
+			}
+			*files = append(*files, nf)
+		}
+	}
+
 }
 
 func createConnection() net.Conn {
-	connAddr := fmt.Sprintf("%s:%d", sconf.connectAddr, sconf.connectPort)
+	connAddr := fmt.Sprintf("%s:%d", conf.Hostname, conf.Port)
 	conn, err := net.Dial("tcp", connAddr)
 	if err != nil {
 		log.Fatalf("net-copy/send: could not establish connection to %s. %v\n", connAddr, err)
@@ -92,11 +107,19 @@ func init() {
 	rootCmd.AddCommand(sendCmd)
 
 	// Here you will define your flags and configuration settings.
-	sendCmd.Flags().StringVarP(&sconf.connectAddr, "host", "a", "127.0.0.1", "Define which host to connect to")
-	sendCmd.Flags().Uint16VarP(&sconf.connectPort, "port", "p", 0, "Receivers listen port to connect to.")
-	sendCmd.Flags().StringVarP(&sconf.inDir, "in-dir", "d", ".", "The directory to copy files from")
+	sendCmd.Flags().StringVarP(&conf.Hostname, "host", "a", "127.0.0.1", "Define which host to connect to")
+	sendCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "Receivers listen port to connect to.")
+	sendCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "The directory to copy files from")
 	sendCmd.MarkFlagRequired("host")
 	sendCmd.MarkFlagRequired("port")
+
+	if conf.WorkingDirectory == "." {
+		wd, err := os.Getwd()
+		if err != nil {
+			log.Fatalf("net-copy/send: could not get cwd. Please specify a working directory manually: %v\n", err)
+		}
+		conf.WorkingDirectory = wd
+	}
 
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:
