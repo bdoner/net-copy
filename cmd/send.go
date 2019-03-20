@@ -21,8 +21,15 @@
 package cmd
 
 import (
+	"encoding/gob"
+	"fmt"
+	"log"
 	"net"
+	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/bdoner/net-copy/shared"
 	"github.com/spf13/cobra"
 )
 
@@ -45,12 +52,40 @@ var sendCmd = &cobra.Command{
 	This application is a tool to generate the needed files
 	to quickly create a Cobra application.`,*/
 	Run: func(cmd *cobra.Command, args []string) {
+
+		m := collectFiles()
 		conn := createConnection()
+
+		enc := gob.NewEncoder(conn)
+		enc.Encode(m)
+
+		time.Sleep(time.Minute * 1)
 	},
 }
 
+func collectFiles() shared.SetupMessage {
+	fs := make([]shared.NCFile, 1)
+	fs[0] = shared.NCFile{
+		ID:       uuid.New(),
+		FileSize: 1111,
+		Name:     "testfile.bin",
+	}
+	m := shared.SetupMessage{
+		NumFiles: 1,
+		Files:    &fs,
+	}
+
+	return m
+}
+
 func createConnection() net.Conn {
-	net.Dial(sconf.connectAddr)
+	connAddr := fmt.Sprintf("%s:%d", sconf.connectAddr, sconf.connectPort)
+	conn, err := net.Dial("tcp", connAddr)
+	if err != nil {
+		log.Fatalf("net-copy/send: could not establish connection to %s. %v\n", connAddr, err)
+	}
+
+	return conn
 }
 
 func init() {
@@ -59,6 +94,7 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	sendCmd.Flags().StringVarP(&sconf.connectAddr, "host", "a", "127.0.0.1", "Define which host to connect to")
 	sendCmd.Flags().Uint16VarP(&sconf.connectPort, "port", "p", 0, "Receivers listen port to connect to.")
+	sendCmd.Flags().StringVarP(&sconf.inDir, "in-dir", "d", ".", "The directory to copy files from")
 	sendCmd.MarkFlagRequired("host")
 	sendCmd.MarkFlagRequired("port")
 

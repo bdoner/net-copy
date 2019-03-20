@@ -11,7 +11,7 @@
             "mode": "auto",
             "program": "${fileDirname}",
             "env": {},
-            "args": ["receive", "-l", "3405"]
+            "args": ["receive", "-p", "3405"]
         }
     ]
 }

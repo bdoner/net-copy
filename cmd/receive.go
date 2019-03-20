@@ -53,7 +53,7 @@ var receiveCmd = &cobra.Command{
 
 		var message shared.SetupMessage
 		dec := gob.NewDecoder(conn)
-		err := dec.Decode(message)
+		err := dec.Decode(&message)
 		if err != nil {
 			log.Fatalf("net-copy/receive: error decoding SetupMessage: %v", err)
 		}
@@ -84,7 +84,7 @@ func getConnection() net.Conn {
 func init() {
 	rootCmd.AddCommand(receiveCmd)
 
-	receiveCmd.Flags().Uint16VarP(&rconf.listenPort, "listen-port", "p", 0, "Set the port to listen to. If not set a random, available port is selected")
+	receiveCmd.Flags().Uint16VarP(&rconf.listenPort, "port", "p", 0, "Set the port to listen to. If not set a random, available port is selected")
 	receiveCmd.Flags().StringVarP(&rconf.outDir, "out-dir", "d", ".", "Set the directory to output files to.")
 
 	// Here you will define your flags and configuration settings.
