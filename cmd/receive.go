@@ -23,6 +23,7 @@ package cmd
 import (
 	"encoding/gob"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
 	"net"
@@ -54,6 +55,28 @@ var receiveCmd = &cobra.Command{
 			}
 
 			conf.WorkingDirectory = abs
+
+			_, err = os.Open(conf.WorkingDirectory)
+			if err != nil {
+				if os.IsNotExist(err) {
+					fmt.Printf("Output directory does not exists. creating %s\n", conf.WorkingDirectory)
+					err := os.MkdirAll(conf.WorkingDirectory, 0775)
+					if err != nil {
+						log.Fatalf("could not create output directory: %v\n", err)
+					}
+				} else {
+					log.Fatalf("could not open output directory: %v\n", err)
+				}
+			}
+
+			wdFiles, err := ioutil.ReadDir(conf.WorkingDirectory)
+			if err != nil {
+				log.Fatalf("could not open output directory: %v\n", err)
+			}
+
+			if 0 < len(wdFiles) {
+				log.Fatalf("can only output into an empty directory\n%s is not empty\n", conf.WorkingDirectory)
+			}
 
 		}
 	},
@@ -121,7 +144,16 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 			}
 			fmt.Printf("Got file %s of size %s\n", file.FullPath(&conf), file.PrettySize())
 			chunks := uint64(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
-			//fmt.Printf("Expecting %d chunks\n", chunks)
+
+			err = os.MkdirAll(filepath.Dir(file.FullPath(&conf)), 0775)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
+
+			fp, err := os.Create(file.FullPath(&conf))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
 
 			var receivedChunk ncproto.FileChunk
 			for c := uint64(0); c <= chunks; c++ {
@@ -134,6 +166,10 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 					continue
 				}
 
+				_, err = fp.Write(receivedChunk.Data)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", c, filepath.Join(file.RelativePath, file.Name), err)
+				}
 				//fmt.Printf("Appending %d bytes to file %s in chunk %d of %d\n", receivedChunk.Length, file.FullPath(&conf), c, chunks)
 			}
 

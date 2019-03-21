@@ -11,7 +11,7 @@
             "mode": "auto",
             "program": "${workspaceFolder}/main.go",//"${fileDirname}",
             "env": {},
-            "args": ["receive", "-p", "3405", "--working-dir", "Pictures"]
+            "args": ["send", "-a", "127.0.0.1", "-p", "3405"]
         }
     ]
 }
