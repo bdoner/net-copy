@@ -28,7 +28,7 @@ import (
 	"log"
 	"net"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/google/uuid"
 
@@ -66,7 +66,7 @@ var sendCmd = &cobra.Command{
 
 			fp, err := os.Open(file.FullPath(&conf))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "error opening file %s", path.Join(file.RelativePath, file.Name))
+				fmt.Fprintf(os.Stderr, "error opening file %s", filepath.Join(file.RelativePath, file.Name))
 			}
 
 			enc.Encode(ncproto.MsgFile)
@@ -78,7 +78,7 @@ var sendCmd = &cobra.Command{
 					break
 				}
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "error reading file %s", path.Join(file.RelativePath, file.Name))
+					fmt.Fprintf(os.Stderr, "error reading file %s", filepath.Join(file.RelativePath, file.Name))
 					break
 				}
 
@@ -111,7 +111,7 @@ func collectFiles(dir string, files *[]ncproto.File) {
 
 	for _, v := range fs {
 		if v.IsDir() {
-			collectFiles(path.Join(conf.WorkingDirectory, dir, v.Name()), files)
+			collectFiles(filepath.Join(dir, v.Name()), files)
 		} else {
 			nf := ncproto.File{
 				ID:           uuid.New(),
@@ -152,10 +152,16 @@ func init() {
 			log.Fatalf("net-copy/send: could not get cwd. Please specify a working directory manually: %v\n", err)
 		}
 		conf.WorkingDirectory = wd
+	} else {
+		abs, err := filepath.Abs(conf.WorkingDirectory)
+		if err != nil {
+			log.Fatalf("net-copy/send: could not get abs path: %v\n", err)
+		}
+		conf.WorkingDirectory = abs
 	}
 
 	conf.ConnectionID = uuid.New()
-	conf.ReadBufferSize = 4096
+	conf.ReadBufferSize = 32 * 1024
 
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:

@@ -2,7 +2,7 @@ package ncproto
 
 import (
 	"fmt"
-	"path"
+	"path/filepath"
 
 	"github.com/google/uuid"
 )
@@ -61,7 +61,7 @@ type FileChunk struct {
 
 // FullPath returns the absolute path of where a file should be located on disk according to a given config
 func (f *File) FullPath(c *Config) string {
-	return path.Join(c.WorkingDirectory, f.RelativePath, f.Name)
+	return filepath.Join(c.WorkingDirectory, f.RelativePath, f.Name)
 }
 
 // ConnectionClose closes the connection when sent from client to server

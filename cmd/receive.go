@@ -27,6 +27,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"path/filepath"
 
 	"github.com/bdoner/net-copy/ncproto"
 	"github.com/spf13/cobra"
@@ -38,14 +39,25 @@ var rconf ncproto.Config
 var receiveCmd = &cobra.Command{
 	Use:   "receive",
 	Short: "Set net-copy to receive files",
-	/*Long: `A longer description that spans multiple lines and likely contains examples
-	and usage of using your command. For example:
+	PreRun: func(cmd *cobra.Command, args []string) {
+		if conf.WorkingDirectory == "." {
+			wd, err := os.Getwd()
+			if err != nil {
+				log.Fatalf("net-copy/send: could not get cwd. Please specify a working directory manually: %v\n", err)
+			}
+			conf.WorkingDirectory = wd
 
-	Cobra is a CLI library for Go that empowers applications.
-	This application is a tool to generate the needed files
-	to quickly create a Cobra application.`,*/
+		} else {
+			abs, err := filepath.Abs(conf.WorkingDirectory)
+			if err != nil {
+				log.Fatalf("net-copy/send: could not get absolute path: %v\n", err)
+			}
+
+			conf.WorkingDirectory = abs
+
+		}
+	},
 	Run: func(cmd *cobra.Command, args []string) {
-
 		conn := getConnection()
 		defer conn.Close()
 
@@ -107,7 +119,7 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 				fmt.Fprintf(os.Stderr, "net-copy/receive: got close message from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
-			fmt.Printf("Got file %s of size %s\n", file.Name, file.PrettySize())
+			fmt.Printf("Got file %s of size %s\n", file.FullPath(&conf), file.PrettySize())
 			chunks := uint64(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
 			//fmt.Printf("Expecting %d chunks\n", chunks)
 
@@ -122,7 +134,7 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 					continue
 				}
 
-				fmt.Printf("Appending %d bytes to file %s in chunk %d of %d\n", receivedChunk.Length, file.FullPath(&conf), c, chunks)
+				//fmt.Printf("Appending %d bytes to file %s in chunk %d of %d\n", receivedChunk.Length, file.FullPath(&conf), c, chunks)
 			}
 
 		case ncproto.MsgConfig:
@@ -139,6 +151,7 @@ func getConnection() net.Conn {
 	}
 
 	fmt.Printf("Listening on %s\n", l.Addr().String())
+	fmt.Printf("Outputting files to %s\n", conf.WorkingDirectory)
 	conn, err := l.Accept()
 	if err != nil {
 		log.Fatalf("netcopy/receive: could not accept initial connection\n")
@@ -153,20 +166,4 @@ func init() {
 	receiveCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "Set the port to listen to. If not set a random, available port is selected")
 	receiveCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "Set the directory to output files to.")
 
-	if conf.WorkingDirectory == "." {
-		wd, err := os.Getwd()
-		if err != nil {
-			log.Fatalf("net-copy/send: could not get cwd. Please specify a working directory manually: %v\n", err)
-		}
-		conf.WorkingDirectory = wd
-	}
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// receiveCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// receiveCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
