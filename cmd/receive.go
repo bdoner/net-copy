@@ -166,11 +166,15 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 					continue
 				}
 
-				_, err = fp.Write(receivedChunk.Data)
+				n, err := fp.Write(receivedChunk.Data[:receivedChunk.Length])
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", c, filepath.Join(file.RelativePath, file.Name), err)
 				}
-				//fmt.Printf("Appending %d bytes to file %s in chunk %d of %d\n", receivedChunk.Length, file.FullPath(&conf), c, chunks)
+
+				if n != receivedChunk.Length {
+					fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", receivedChunk.Length, n)
+
+				}
 			}
 
 		case ncproto.MsgConfig:
