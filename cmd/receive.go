@@ -139,7 +139,7 @@ func loop(srv *server.Server) error {
 				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
-			fmt.Printf("Got file %s of size %s\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
+			fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
 			chunks := int(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
 
 			err = os.MkdirAll(filepath.Dir(file.FullPath(&conf)), 0775)

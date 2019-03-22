@@ -64,7 +64,7 @@ var sendCmd = &cobra.Command{
 		collectFiles(conf.WorkingDirectory, &files)
 
 		for _, file := range files {
-			fmt.Printf("%s\n", file.Name)
+			fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
 
 			fp, err := os.Open(file.FullPath(&conf))
 			if err != nil {
