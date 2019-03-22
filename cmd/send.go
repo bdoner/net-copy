@@ -25,10 +25,10 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -49,7 +49,7 @@ var sendCmd = &cobra.Command{
 	Once done the sender signals to the receiver it is done and the connection is closed.
 
 	If -t is provided the lowest value between the sender and receiver is used.`,
-	PreRun: setupConfig,
+	PreRun: setupWorkingDir,
 	Run: func(cmd *cobra.Command, args []string) {
 
 		conn := createConnection()
@@ -62,6 +62,7 @@ var sendCmd = &cobra.Command{
 		readBuffer := make([]byte, conf.ReadBufferSize)
 		files := make([]ncproto.File, 0)
 		collectFiles(conf.WorkingDirectory, &files)
+
 		for _, file := range files {
 			fmt.Printf("%s\n", file.Name)
 
@@ -73,12 +74,14 @@ var sendCmd = &cobra.Command{
 			enc.Encode(ncproto.MsgFile)
 			enc.Encode(file)
 			sentChunks := 0
+			lastPercentage := 0
 			for {
 				n, err := fp.Read(readBuffer)
-				if n == 0 && err == io.EOF {
+				if n == 0 && err == io.EOF && sentChunks != 0 {
 					break
 				}
-				if err != nil {
+
+				if err != nil && err != io.EOF {
 					fmt.Fprintf(os.Stderr, "error reading file %s", filepath.Join(file.RelativePath, file.Name))
 					break
 				}
@@ -87,19 +90,25 @@ var sendCmd = &cobra.Command{
 					ID:           file.ID,
 					ConnectionID: conf.ConnectionID,
 					Data:         readBuffer[:n],
+					Seq:          sentChunks,
 				}
+
+				bar, progress := file.GetProgress(sentChunks, 25, &conf)
+				if lastPercentage < progress {
+					fmt.Printf("\r%s", bar)
+					lastPercentage = progress
+				}
+
 				sentChunks++
-				//fmt.Printf("sending chunk %d\n", sentChunks)
 				enc.Encode(fchunk)
 			}
+
+			fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
 
 		}
 
 		enc.Encode(ncproto.MsgClose)
 		enc.Encode(ncproto.ConnectionClose{ConnectionID: conf.ConnectionID})
-
-		//time.Sleep(time.Minute * 1)
-		//files := collectFiles()
 	},
 }
 
@@ -135,7 +144,8 @@ func createConnection() net.Conn {
 	connAddr := fmt.Sprintf("%s:%d", conf.Hostname, conf.Port)
 	conn, err := net.Dial("tcp", connAddr)
 	if err != nil {
-		log.Fatalf("net-copy/send: could not establish connection to %s. %v\n", connAddr, err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(-1)
 	}
 
 	return conn
@@ -144,7 +154,6 @@ func createConnection() net.Conn {
 func init() {
 	rootCmd.AddCommand(sendCmd)
 
-	// Here you will define your flags and configuration settings.
 	sendCmd.Flags().StringVarP(&conf.Hostname, "host", "a", "", "define which host to connect to")
 	sendCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "the port to connect to")
 	sendCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "the directory to copy files from")
@@ -153,6 +162,6 @@ func init() {
 	sendCmd.MarkFlagRequired("port")
 
 	conf.ConnectionID = uuid.New()
-	conf.ReadBufferSize = 32 * 1024
+	conf.ReadBufferSize = 128 * 1024
 
 }

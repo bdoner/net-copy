@@ -21,15 +21,15 @@
 package cmd
 
 import (
-	"encoding/gob"
 	"fmt"
-	"log"
+	"io/ioutil"
 	"math"
-	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bdoner/net-copy/ncproto"
+	"github.com/bdoner/net-copy/ncproto/server"
 	"github.com/spf13/cobra"
 )
 
@@ -45,71 +45,102 @@ var receiveCmd = &cobra.Command{
 	receives all the files defined by the sender and closes the connection.
 
 	If -t is provided the lowest value between the sender and receiver is used.`,
-	PreRun: setupConfig,
-	Run: func(cmd *cobra.Command, args []string) {
-		conn := getConnection()
-		defer conn.Close()
+	PreRun: func(cmd *cobra.Command, args []string) {
+		setupWorkingDir(cmd, args)
+
+		_, err := os.Open(conf.WorkingDirectory)
+		if err != nil {
+			if os.IsNotExist(err) {
+				fmt.Printf("Output directory does not exists. creating %s\n", conf.WorkingDirectory)
+				err := os.MkdirAll(conf.WorkingDirectory, 0775)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "could not create output directory: %v\n", err)
+					os.Exit(-1)
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "could not open output directory: %v\n", err)
+				os.Exit(-1)
+			}
+		}
+
+		wdFiles, err := ioutil.ReadDir(conf.WorkingDirectory)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not open output directory: %v\n", err)
+			os.Exit(-1)
+		}
+
+		if 0 < len(wdFiles) {
+			fmt.Fprintf(os.Stderr, "can only output into an empty directory\n%s is not empty\n", conf.WorkingDirectory)
+			os.Exit(-1)
+		}
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		srv, err := server.Create(conf.Port)
+		if err != nil {
+			return err
+		}
+
+		defer srv.Connection.Close()
 
 		var messageType ncproto.MessageType
-		dec := gob.NewDecoder(conn)
-		err := dec.Decode(&messageType)
+		err = srv.GetNextMessage(&messageType)
 		if err != nil {
-			log.Fatalf("net-copy/receive: error decoding Message: %v", err)
+			return err
 		}
 
 		if messageType == ncproto.MsgConfig {
 			var cConf ncproto.Config
-			err := dec.Decode(&cConf)
+			err := srv.GetNextMessage(&cConf)
 			if err != nil {
-				log.Fatalf("net-copy/receive: error decoding Message.Data: %v", err)
+				return err
 			}
 			conf.Merge(cConf)
-			fmt.Printf("Accepted connection from %s\n", conn.RemoteAddr().String())
+			fmt.Printf("Accepted connection from %s\n", srv.Connection.RemoteAddr().String())
 
 		} else {
-			log.Fatal("First message has to be of type MsgConfigure\n")
+			return fmt.Errorf("first message has to be of type MsgConfigure")
+			//os.Exit(-1)
 		}
 
-		loop(dec, &conn)
-
+		return loop(srv)
 	},
 }
 
-func loop(dec *gob.Decoder, conn *net.Conn) {
+func loop(srv *server.Server) error {
 	for {
 		var messageType ncproto.MessageType
-		err := dec.Decode(&messageType)
+		err := srv.GetNextMessage(&messageType)
 		if err != nil {
-			log.Fatalf("net-copy/receive: error decoding Message: %v", err)
+			return err
 		}
 
 		switch messageType {
 		case ncproto.MsgClose:
 			var cc ncproto.ConnectionClose
-			err := dec.Decode(&cc)
+			err := srv.GetNextMessage(&cc)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "net-copy/receive: error decoding close message. %v\n", err)
+				return err
 			}
 			if cc.ConnectionID != conf.ConnectionID {
-				fmt.Fprintf(os.Stderr, "net-copy/receive: got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
+				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
 			fmt.Println("client says done. closing connection.")
-			(*conn).Close()
+			srv.Connection.Close()
 			os.Exit(0)
 
 		case ncproto.MsgFile:
 			var file ncproto.File
-			err := dec.Decode(&file)
+			err := srv.GetNextMessage(&file)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "net-copy/receive: error decoding file message. %v\n", err)
+				fmt.Fprintf(os.Stderr, "error decoding file message. %v\n", err)
 			}
 			if file.ConnectionID != conf.ConnectionID {
-				fmt.Fprintf(os.Stderr, "net-copy/receive: got close message from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
+				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
-			fmt.Printf("Got file %s of size %s\n", file.FullPath(&conf), file.PrettySize())
-			chunks := uint64(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
+			fmt.Printf("Got file %s of size %s\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
+			chunks := int(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
 
 			err = os.MkdirAll(filepath.Dir(file.FullPath(&conf)), 0775)
 			if err != nil {
@@ -121,9 +152,10 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 
+			lastPercentage := 0
 			var receivedChunk ncproto.FileChunk
-			for c := uint64(0); c <= chunks; c++ {
-				err := dec.Decode(&receivedChunk)
+			for c := int(0); c <= chunks; c++ {
+				err := srv.GetNextMessage(&receivedChunk)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "error reading chunk %d of %d\n", c, chunks)
 					continue
@@ -142,31 +174,21 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 				if n != len(receivedChunk.Data) {
 					fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(receivedChunk.Data), n)
 					continue
+				}
 
+				bar, progress := file.GetProgress(c, 25, &conf)
+				if lastPercentage < progress {
+					fmt.Printf("\r%s", bar)
+					lastPercentage = progress
 				}
 			}
+			fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
 
 		case ncproto.MsgConfig:
-			fmt.Fprintf(os.Stderr, "net-copy/receive: initial MsgConfig already received.\n")
+			fmt.Fprintf(os.Stderr, "initial MsgConfig already received.\n")
 			continue
 		}
 	}
-}
-
-func getConnection() net.Conn {
-	l, err := net.Listen("tcp4", fmt.Sprintf(":%d", conf.Port))
-	if err != nil {
-		log.Fatalf("netcopy/receive: could not listen on port %d\n", conf.Port)
-	}
-
-	fmt.Printf("Listening on %s\n", l.Addr().String())
-	fmt.Printf("Outputting files to %s\n", conf.WorkingDirectory)
-	conn, err := l.Accept()
-	if err != nil {
-		log.Fatalf("netcopy/receive: could not accept initial connection\n")
-	}
-
-	return conn
 }
 
 func init() {

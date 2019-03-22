@@ -2,7 +2,9 @@ package ncproto
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -56,11 +58,22 @@ type FileChunk struct {
 	ID           uuid.UUID
 	ConnectionID uuid.UUID
 	Data         []byte
+	Seq          int
 }
 
 // FullPath returns the absolute path of where a file should be located on disk according to a given config
 func (f *File) FullPath(c *Config) string {
 	return filepath.Join(c.WorkingDirectory, f.RelativePath, f.Name)
+}
+
+// GetProgress returns the progress of a file transfer as an ascii bar, a number from 0-100
+func (f *File) GetProgress(count, width int, conf *Config) (string, int) {
+	cm := int(math.Max(float64(count), 1))
+	csm := int(math.Max(float64(f.FileSize/int64(conf.ReadBufferSize)), 1))
+	progress := int((float64(cm) / float64(csm)) * 100.0)
+	prog := int((float64(progress) / 100.0) * float64(width))
+	bar := fmt.Sprintf("%s%s>", strings.Repeat("#", prog), strings.Repeat(" ", width-prog))
+	return bar, progress
 }
 
 // ConnectionClose closes the connection when sent from client to server

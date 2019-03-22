@@ -11,7 +11,8 @@
             "mode": "auto",
             "program": "${workspaceFolder}/main.go",//"${fileDirname}",
             "env": {},
-            "args": ["send", "-a", "127.0.0.1", "-p", "3405"]
+            //"args": ["send", "-a", "127.0.0.1", "-p", "3405", "-d", "test"]
+            "args": ["receive", "-p", "3405", "-d", "test2"]
         }
     ]
 }
