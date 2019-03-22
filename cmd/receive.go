@@ -126,6 +126,7 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 				err := dec.Decode(&receivedChunk)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "error reading chunk %d of %d\n", c, chunks)
+					continue
 				}
 				if receivedChunk.ConnectionID != conf.ConnectionID {
 					fmt.Fprintf(os.Stderr, "got file chunk from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
