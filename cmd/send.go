@@ -39,16 +39,16 @@ import (
 
 var conf ncproto.Config
 
-// sendCmd represents the send command
 var sendCmd = &cobra.Command{
 	Use:   "send",
-	Short: "Set net-copy to send files.",
-	/*Long: `A longer description that spans multiple lines and likely contains examples
-	and usage of using your command. For example:
+	Short: "Set net-copy to send files",
+	Long: `
+	Connects to a host, given by -a, using the port given by -p, then collects
+	a list of files to send. Once the connection is established net-copy will start
+	sending all the files recursively found in the working-directory (-d).
+	Once done the sender signals to the receiver it is done and the connection is closed.
 
-	Cobra is a CLI library for Go that empowers applications.
-	This application is a tool to generate the needed files
-	to quickly create a Cobra application.`,*/
+	If -t is provided the lowest value between the sender and receiver is used.`,
 	PreRun: setupConfig,
 	Run: func(cmd *cobra.Command, args []string) {
 
@@ -145,20 +145,14 @@ func init() {
 	rootCmd.AddCommand(sendCmd)
 
 	// Here you will define your flags and configuration settings.
-	sendCmd.Flags().StringVarP(&conf.Hostname, "host", "a", "127.0.0.1", "Define which host to connect to")
-	sendCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "Receivers listen port to connect to.")
-	sendCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "The directory to copy files from")
+	sendCmd.Flags().StringVarP(&conf.Hostname, "host", "a", "", "define which host to connect to")
+	sendCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "the port to connect to")
+	sendCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "the directory to copy files from")
+	sendCmd.Flags().Uint16VarP(&conf.Threads, "threads", "t", 1, "define how many concurrent transfers to run")
 	sendCmd.MarkFlagRequired("host")
 	sendCmd.MarkFlagRequired("port")
 
 	conf.ConnectionID = uuid.New()
 	conf.ReadBufferSize = 32 * 1024
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// sendCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// sendCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

@@ -37,8 +37,14 @@ var rconf ncproto.Config
 
 // receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
-	Use:    "receive",
-	Short:  "Set net-copy to receive files",
+	Use:   "receive",
+	Short: "Set net-copy to receive files",
+	Long: `
+	Receive opens a port (optionally given by -p) and starts listening for
+	an incoming connection. Once the connection is established net-copy
+	receives all the files defined by the sender and closes the connection.
+
+	If -t is provided the lowest value between the sender and receiver is used.`,
 	PreRun: setupConfig,
 	Run: func(cmd *cobra.Command, args []string) {
 		conn := getConnection()
@@ -165,7 +171,8 @@ func getConnection() net.Conn {
 func init() {
 	rootCmd.AddCommand(receiveCmd)
 
-	receiveCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "Set the port to listen to. If not set a random, available port is selected")
-	receiveCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "Set the directory to output files to.")
+	receiveCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "set the port to listen to. If not set a random, available port is selected")
+	receiveCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "set the directory to output files to")
+	receiveCmd.Flags().Uint16VarP(&conf.Threads, "threads", "t", 1, "define how many concurrent transfers to run")
 
 }
