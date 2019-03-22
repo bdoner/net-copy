@@ -49,6 +49,7 @@ var sendCmd = &cobra.Command{
 	Cobra is a CLI library for Go that empowers applications.
 	This application is a tool to generate the needed files
 	to quickly create a Cobra application.`,*/
+	PreRun: setupConfig,
 	Run: func(cmd *cobra.Command, args []string) {
 
 		conn := createConnection()
@@ -85,8 +86,7 @@ var sendCmd = &cobra.Command{
 				fchunk := ncproto.FileChunk{
 					ID:           file.ID,
 					ConnectionID: conf.ConnectionID,
-					Length:       n,
-					Data:         readBuffer,
+					Data:         readBuffer[:n],
 				}
 				sentChunks++
 				//fmt.Printf("sending chunk %d\n", sentChunks)
@@ -113,12 +113,17 @@ func collectFiles(dir string, files *[]ncproto.File) {
 		if v.IsDir() {
 			collectFiles(filepath.Join(dir, v.Name()), files)
 		} else {
+			rel, err := filepath.Rel(conf.WorkingDirectory, dir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				continue
+			}
 			nf := ncproto.File{
 				ID:           uuid.New(),
 				ConnectionID: conf.ConnectionID,
 				FileSize:     v.Size(),
 				Name:         v.Name(),
-				RelativePath: dir[len(conf.WorkingDirectory):],
+				RelativePath: rel,
 			}
 			*files = append(*files, nf)
 		}
@@ -145,20 +150,6 @@ func init() {
 	sendCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "The directory to copy files from")
 	sendCmd.MarkFlagRequired("host")
 	sendCmd.MarkFlagRequired("port")
-
-	if conf.WorkingDirectory == "." {
-		wd, err := os.Getwd()
-		if err != nil {
-			log.Fatalf("net-copy/send: could not get cwd. Please specify a working directory manually: %v\n", err)
-		}
-		conf.WorkingDirectory = wd
-	} else {
-		abs, err := filepath.Abs(conf.WorkingDirectory)
-		if err != nil {
-			log.Fatalf("net-copy/send: could not get abs path: %v\n", err)
-		}
-		conf.WorkingDirectory = abs
-	}
 
 	conf.ConnectionID = uuid.New()
 	conf.ReadBufferSize = 32 * 1024

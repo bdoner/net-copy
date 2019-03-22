@@ -23,7 +23,6 @@ package cmd
 import (
 	"encoding/gob"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math"
 	"net"
@@ -38,48 +37,9 @@ var rconf ncproto.Config
 
 // receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
-	Use:   "receive",
-	Short: "Set net-copy to receive files",
-	PreRun: func(cmd *cobra.Command, args []string) {
-		if conf.WorkingDirectory == "." {
-			wd, err := os.Getwd()
-			if err != nil {
-				log.Fatalf("net-copy/send: could not get cwd. Please specify a working directory manually: %v\n", err)
-			}
-			conf.WorkingDirectory = wd
-
-		} else {
-			abs, err := filepath.Abs(conf.WorkingDirectory)
-			if err != nil {
-				log.Fatalf("net-copy/send: could not get absolute path: %v\n", err)
-			}
-
-			conf.WorkingDirectory = abs
-
-			_, err = os.Open(conf.WorkingDirectory)
-			if err != nil {
-				if os.IsNotExist(err) {
-					fmt.Printf("Output directory does not exists. creating %s\n", conf.WorkingDirectory)
-					err := os.MkdirAll(conf.WorkingDirectory, 0775)
-					if err != nil {
-						log.Fatalf("could not create output directory: %v\n", err)
-					}
-				} else {
-					log.Fatalf("could not open output directory: %v\n", err)
-				}
-			}
-
-			wdFiles, err := ioutil.ReadDir(conf.WorkingDirectory)
-			if err != nil {
-				log.Fatalf("could not open output directory: %v\n", err)
-			}
-
-			if 0 < len(wdFiles) {
-				log.Fatalf("can only output into an empty directory\n%s is not empty\n", conf.WorkingDirectory)
-			}
-
-		}
-	},
+	Use:    "receive",
+	Short:  "Set net-copy to receive files",
+	PreRun: setupConfig,
 	Run: func(cmd *cobra.Command, args []string) {
 		conn := getConnection()
 		defer conn.Close()
@@ -166,13 +126,15 @@ func loop(dec *gob.Decoder, conn *net.Conn) {
 					continue
 				}
 
-				n, err := fp.Write(receivedChunk.Data[:receivedChunk.Length])
+				n, err := fp.Write(receivedChunk.Data)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", c, filepath.Join(file.RelativePath, file.Name), err)
+					continue
 				}
 
-				if n != receivedChunk.Length {
-					fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", receivedChunk.Length, n)
+				if n != len(receivedChunk.Data) {
+					fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(receivedChunk.Data), n)
+					continue
 
 				}
 			}
