@@ -133,14 +133,21 @@ func loop(srv *ncserver.Server) error {
 				return fmt.Errorf("unknown file chunk %v", chunk)
 			}
 
-			fp, err := os.OpenFile(file.FullFilePath(&conf), os.O_APPEND, 0775)
+			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_APPEND, 0775)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 
-			n, err := fp.Write(chunk.Data)
+			defer (func() {
+				err := fd.Close()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%v\n", err)
+				}
+			})()
+
+			n, err := fd.Write(chunk.Data)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", chunk.Seq, filepath.Join(file.RelativePath, file.Name), err)
+				fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", chunk.Seq, file.RelativeFilePath(&conf), err)
 				continue
 			}
 
@@ -170,7 +177,14 @@ func loop(srv *ncserver.Server) error {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 
-			_, err := os.Create(file.FullFilePath(&conf))
+			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_CREATE, 0775)
+			defer (func() {
+				err := fd.Close()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%v\n", err)
+				}
+			})()
+
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
