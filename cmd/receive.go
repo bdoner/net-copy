@@ -85,13 +85,17 @@ var receiveCmd = &cobra.Command{
 
 		defer srv.Connection.Close()
 
-		var cConf ncproto.Config
+		var cConf ncproto.IMessageType
 		err = srv.GetNextMessage(&cConf)
 		if err != nil {
 			return err
 		}
 
-		conf.Merge(cConf)
+		if cConf.Type() != ncproto.MsgConfig {
+			return fmt.Errorf("initial message was not of type config")
+		}
+
+		conf.Merge(cConf.(ncproto.Config))
 		fmt.Printf("Accepted connection from %s\n", srv.Connection.RemoteAddr().String())
 		return loop(srv)
 	},

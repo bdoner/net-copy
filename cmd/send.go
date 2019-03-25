@@ -56,8 +56,14 @@ var sendCmd = &cobra.Command{
 		defer conn.Close()
 
 		enc := gob.NewEncoder(conn)
+
+		gob.Register(ncproto.Config{})
 		gob.Register(ncproto.File{})
-		enc.Encode(conf)
+		gob.Register(ncproto.FileChunk{})
+		gob.Register(ncproto.ConnectionClose{})
+
+		sendMessage(enc, conf)
+		//enc.Encode(conf)
 
 		readBuffer := make([]byte, conf.ReadBufferSize)
 		files := make([]ncproto.File, 0)
@@ -71,7 +77,8 @@ var sendCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "error opening file %s", filepath.Join(file.RelativePath, file.Name))
 			}
 
-			enc.Encode(&file)
+			sendMessage(enc, file)
+			//enc.Encode(file)
 
 			sentChunks := 0
 			lastPercentage := 0
@@ -100,14 +107,18 @@ var sendCmd = &cobra.Command{
 				}
 
 				sentChunks++
-				enc.Encode(&fchunk)
+				sendMessage(enc, fchunk)
+				//enc.Encode(fchunk)
 			}
 
 			fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
 
 		}
 
-		enc.Encode(&ncproto.ConnectionClose{ConnectionID: conf.ConnectionID})
+		sendMessage(enc, ncproto.ConnectionClose{
+			ConnectionID: conf.ConnectionID,
+		})
+		//enc.Encode(ncproto.ConnectionClose{ConnectionID: conf.ConnectionID})
 	},
 }
 
@@ -137,6 +148,10 @@ func collectFiles(dir string, files *[]ncproto.File) {
 		}
 	}
 
+}
+
+func sendMessage(enc *gob.Encoder, msg ncproto.IMessageType) {
+	enc.Encode(&msg)
 }
 
 func createConnection() net.Conn {
