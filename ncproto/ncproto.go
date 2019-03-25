@@ -89,7 +89,7 @@ func (f *File) FullFilePath(c *Config) string {
 
 // RelativeFilePath gives the path relative to the WorkingDirectory
 func (f *File) RelativeFilePath(c *Config) string {
-	return filepath.Join(c.WorkingDirectory, f.RelativePath, f.Name)
+	return filepath.Join(f.RelativePath, f.Name)
 }
 
 // GetProgress returns the progress of a file transfer as an ascii bar and a number from 0-100
