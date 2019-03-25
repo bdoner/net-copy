@@ -4,6 +4,8 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net"
+
+	"github.com/bdoner/net-copy/ncproto"
 )
 
 // Server struct
@@ -29,6 +31,11 @@ func Create(port uint16) (*Server, error) {
 		//fmt.Fprintf(os.Stderr, "netcopy/receive: could not accept initial connection\n")
 		//os.Exit(-1)
 	}
+
+	gob.Register(ncproto.Config{})
+	gob.Register(ncproto.File{})
+	gob.Register(ncproto.FileChunk{})
+	gob.Register(ncproto.ConnectionClose{})
 
 	s := Server{
 		Connection: conn,

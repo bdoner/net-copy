@@ -11,6 +11,9 @@ import (
 
 // MessageType determine how to handle the incoming message
 type MessageType uint8
+type IMessageType interface {
+	Type() MessageType
+}
 
 const (
 	// MsgConfig is the initial message being sent from the
@@ -20,8 +23,10 @@ const (
 	// MsgFile denotes that the Data contains raw file bytes
 	MsgFile MessageType = 0x1
 
-	// MsgClose tells the server that everything is done and it can close the connection
-	MsgClose MessageType = 0x2
+	MsgFileChunk MessageType = 0x2
+
+	// MsgConnectionClose tells the server that everything is done and it can close the connection
+	MsgConnectionClose MessageType = 0x3
 )
 
 // Config holds configuration for both sender and receiver
@@ -34,12 +39,13 @@ type Config struct {
 	ReadBufferSize   uint32
 }
 
+func (c Config) Type() MessageType {
+	return MsgConfig
+}
+
 // Merge two Config's
 // The calling struct is the resulting struct
 func (c *Config) Merge(conf Config) {
-	if conf.Threads < c.Threads {
-		c.Threads = conf.Threads
-	}
 	c.ConnectionID = conf.ConnectionID
 	c.ReadBufferSize = conf.ReadBufferSize
 }
@@ -53,6 +59,10 @@ type File struct {
 	RelativePath string
 }
 
+func (c File) Type() MessageType {
+	return MsgFile
+}
+
 // FileChunk is the actual file data being sent
 type FileChunk struct {
 	ID           uuid.UUID
@@ -61,12 +71,16 @@ type FileChunk struct {
 	Seq          int
 }
 
+func (c FileChunk) Type() MessageType {
+	return MsgFileChunk
+}
+
 // FullPath returns the absolute path of where a file should be located on disk according to a given config
 func (f *File) FullPath(c *Config) string {
 	return filepath.Join(c.WorkingDirectory, f.RelativePath, f.Name)
 }
 
-// GetProgress returns the progress of a file transfer as an ascii bar, a number from 0-100
+// GetProgress returns the progress of a file transfer as an ascii bar and a number from 0-100
 func (f *File) GetProgress(count, width int, conf *Config) (string, int) {
 	cm := int(math.Max(float64(count), 1))
 	csm := int(math.Max(float64(f.FileSize/int64(conf.ReadBufferSize)), 1))
@@ -79,6 +93,10 @@ func (f *File) GetProgress(count, width int, conf *Config) (string, int) {
 // ConnectionClose closes the connection when sent from client to server
 type ConnectionClose struct {
 	ConnectionID uuid.UUID
+}
+
+func (c ConnectionClose) Type() MessageType {
+	return MsgConnectionClose
 }
 
 // PrettySize returns a human readable file size

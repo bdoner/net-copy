@@ -56,7 +56,7 @@ var sendCmd = &cobra.Command{
 		defer conn.Close()
 
 		enc := gob.NewEncoder(conn)
-		enc.Encode(ncproto.MsgConfig)
+		gob.Register(ncproto.File{})
 		enc.Encode(conf)
 
 		readBuffer := make([]byte, conf.ReadBufferSize)
@@ -71,8 +71,8 @@ var sendCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "error opening file %s", filepath.Join(file.RelativePath, file.Name))
 			}
 
-			enc.Encode(ncproto.MsgFile)
-			enc.Encode(file)
+			enc.Encode(&file)
+
 			sentChunks := 0
 			lastPercentage := 0
 			for {
@@ -100,15 +100,14 @@ var sendCmd = &cobra.Command{
 				}
 
 				sentChunks++
-				enc.Encode(fchunk)
+				enc.Encode(&fchunk)
 			}
 
 			fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
 
 		}
 
-		enc.Encode(ncproto.MsgClose)
-		enc.Encode(ncproto.ConnectionClose{ConnectionID: conf.ConnectionID})
+		enc.Encode(&ncproto.ConnectionClose{ConnectionID: conf.ConnectionID})
 	},
 }
 

@@ -23,17 +23,20 @@ package cmd
 import (
 	"fmt"
 	"io/ioutil"
-	"math"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/bdoner/net-copy/ncproto"
 	"github.com/bdoner/net-copy/ncproto/server"
 	"github.com/spf13/cobra"
 )
 
-var rconf ncproto.Config
+var (
+	rconf      ncproto.Config
+	knownFiles map[uuid.UUID]ncproto.File
+)
 
 // receiveCmd represents the receive command
 var receiveCmd = &cobra.Command{
@@ -82,45 +85,32 @@ var receiveCmd = &cobra.Command{
 
 		defer srv.Connection.Close()
 
-		var messageType ncproto.MessageType
-		err = srv.GetNextMessage(&messageType)
+		var cConf ncproto.Config
+		err = srv.GetNextMessage(&cConf)
 		if err != nil {
 			return err
 		}
 
-		if messageType == ncproto.MsgConfig {
-			var cConf ncproto.Config
-			err := srv.GetNextMessage(&cConf)
-			if err != nil {
-				return err
-			}
-			conf.Merge(cConf)
-			fmt.Printf("Accepted connection from %s\n", srv.Connection.RemoteAddr().String())
-
-		} else {
-			return fmt.Errorf("first message has to be of type MsgConfigure")
-			//os.Exit(-1)
-		}
-
+		conf.Merge(cConf)
+		fmt.Printf("Accepted connection from %s\n", srv.Connection.RemoteAddr().String())
 		return loop(srv)
 	},
 }
 
 func loop(srv *server.Server) error {
+	knownFiles = make(map[uuid.UUID]ncproto.File)
+
 	for {
-		var messageType ncproto.MessageType
-		err := srv.GetNextMessage(&messageType)
+		var message ncproto.IMessageType
+		err := srv.GetNextMessage(&message)
 		if err != nil {
 			return err
 		}
 
-		switch messageType {
-		case ncproto.MsgClose:
-			var cc ncproto.ConnectionClose
-			err := srv.GetNextMessage(&cc)
-			if err != nil {
-				return err
-			}
+		switch message.Type() {
+		case ncproto.MsgConnectionClose:
+			cc := message.(ncproto.ConnectionClose) //.(ncproto.ConnectionClose)
+
 			if cc.ConnectionID != conf.ConnectionID {
 				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
 				continue
@@ -129,60 +119,72 @@ func loop(srv *server.Server) error {
 			srv.Connection.Close()
 			os.Exit(0)
 
-		case ncproto.MsgFile:
-			var file ncproto.File
-			err := srv.GetNextMessage(&file)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error decoding file message. %v\n", err)
+		case ncproto.MsgFileChunk:
+			chunk := message.(ncproto.FileChunk)
+			if chunk.ConnectionID != conf.ConnectionID {
+				fmt.Fprintf(os.Stderr, "got file chunk from %s but expected it from someone else\n", conf.ConnectionID.String())
+				continue
 			}
+			file, found := knownFiles[chunk.ID]
+			if !found {
+				return fmt.Errorf("unknown file chunk %v", chunk)
+			}
+
+			fp, err := os.OpenFile(file.FullPath(&conf), os.O_APPEND, 0775)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
+
+			n, err := fp.Write(chunk.Data)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", chunk.Seq, filepath.Join(file.RelativePath, file.Name), err)
+				continue
+			}
+
+			if n != len(chunk.Data) {
+				fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(chunk.Data), n)
+				continue
+			}
+
+			// bar, progress := file.GetProgress(c, 25, &conf)
+			// if lastPercentage < progress {
+			// 	fmt.Printf("\r%s", bar)
+			// 	lastPercentage = progress
+			// }
+
+		case ncproto.MsgFile:
+			file := message.(ncproto.File)
+
 			if file.ConnectionID != conf.ConnectionID {
 				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
 			fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
-			chunks := int(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
+			//chunks := int(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
 
 			err = os.MkdirAll(filepath.Dir(file.FullPath(&conf)), 0775)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 
-			fp, err := os.Create(file.FullPath(&conf))
+			_, err := os.Create(file.FullPath(&conf))
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 
-			lastPercentage := 0
-			var receivedChunk ncproto.FileChunk
-			for c := int(0); c <= chunks; c++ {
-				err := srv.GetNextMessage(&receivedChunk)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "error reading chunk %d of %d\n", c, chunks)
-					continue
-				}
-				if receivedChunk.ConnectionID != conf.ConnectionID {
-					fmt.Fprintf(os.Stderr, "got file chunk from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
-					continue
-				}
+			knownFiles[file.ID] = file
 
-				n, err := fp.Write(receivedChunk.Data)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", c, filepath.Join(file.RelativePath, file.Name), err)
-					continue
-				}
+			// lastPercentage := 0
+			// var receivedChunk ncproto.FileChunk
+			// for c := int(0); c <= chunks; c++ {
+			// 	err := srv.GetNextMessage(&receivedChunk)
+			// 	if err != nil {
+			// 		fmt.Fprintf(os.Stderr, "error reading chunk %d of %d\n", c, chunks)
+			// 		continue
+			// 	}
 
-				if n != len(receivedChunk.Data) {
-					fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(receivedChunk.Data), n)
-					continue
-				}
-
-				bar, progress := file.GetProgress(c, 25, &conf)
-				if lastPercentage < progress {
-					fmt.Printf("\r%s", bar)
-					lastPercentage = progress
-				}
-			}
-			fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
+			// }
+			// fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
 
 		case ncproto.MsgConfig:
 			fmt.Fprintf(os.Stderr, "initial MsgConfig already received.\n")
@@ -196,6 +198,5 @@ func init() {
 
 	receiveCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "set the port to listen to. If not set a random, available port is selected")
 	receiveCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "set the directory to output files to")
-	receiveCmd.Flags().Uint16VarP(&conf.Threads, "threads", "t", 1, "define how many concurrent transfers to run")
 
 }
