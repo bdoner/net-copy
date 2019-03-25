@@ -45,9 +45,7 @@ var receiveCmd = &cobra.Command{
 	Long: `
 	Receive opens a port (optionally given by -p) and starts listening for
 	an incoming connection. Once the connection is established net-copy
-	receives all the files defined by the sender and closes the connection.
-
-	If -t is provided the lowest value between the sender and receiver is used.`,
+	receives all the files defined by the sender and closes the connection.`,
 	PreRun: func(cmd *cobra.Command, args []string) {
 		setupWorkingDir(cmd, args)
 

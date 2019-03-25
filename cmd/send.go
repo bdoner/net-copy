@@ -46,9 +46,7 @@ var sendCmd = &cobra.Command{
 	Connects to a host, given by -a, using the port given by -p, then collects
 	a list of files to send. Once the connection is established net-copy will start
 	sending all the files recursively found in the working-directory (-d).
-	Once done the sender signals to the receiver it is done and the connection is closed.
-
-	If -t is provided the lowest value between the sender and receiver is used.`,
+	Once done the sender signals to the receiver it is done and the connection is closed.`,
 	PreRun: setupWorkingDir,
 	Run: func(cmd *cobra.Command, args []string) {
 
