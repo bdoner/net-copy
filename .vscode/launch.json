@@ -9,10 +9,10 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/main.go",//"${fileDirname}",
+            "program": "${workspaceFolder}/main.go",
             "env": {},
             //"args": ["send", "-a", "127.0.0.1", "-p", "3405", "-d", "test"]
-            "args": ["send", "-p", "3405", "-a", "127.0.0.1", "-d", "test", "-t", "2"]
+            "args": ["send", "-p", "3405", "-a", "127.0.0.1", "-d", "test", "-t", "5"]
         }
     ]
 }

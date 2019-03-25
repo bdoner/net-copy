@@ -74,6 +74,7 @@ var sendCmd = &cobra.Command{
 				e := files.Front()
 				if e == nil {
 					breakAll = true
+					wg.Done()
 					break
 				}
 
