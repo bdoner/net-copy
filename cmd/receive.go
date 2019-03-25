@@ -25,6 +25,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -102,6 +103,7 @@ var receiveCmd = &cobra.Command{
 
 func loop(srv *ncserver.Server) error {
 	knownFiles = make(map[uuid.UUID]ncproto.File)
+	var writeWg sync.WaitGroup
 
 	for {
 		var message ncproto.IMessageType
@@ -120,6 +122,7 @@ func loop(srv *ncserver.Server) error {
 			}
 			fmt.Println("client says done. closing connection.")
 			srv.Connection.Close()
+			writeWg.Wait()
 			os.Exit(0)
 
 		case ncproto.MsgFileChunk:
@@ -133,34 +136,34 @@ func loop(srv *ncserver.Server) error {
 				return fmt.Errorf("unknown file chunk %v", chunk)
 			}
 
-			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_APPEND|os.O_WRONLY, 0775)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-			}
+			writeWg.Add(1)
+			go func(file *ncproto.File, chunk *ncproto.FileChunk, wwg *sync.WaitGroup) {
 
-			defer (func() {
-				err := fd.Close()
+				defer wwg.Done()
+				fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_APPEND|os.O_WRONLY, 0775)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "%v\n", err)
 				}
-			})()
 
-			n, err := fd.Write(chunk.Data)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", chunk.Seq, file.RelativeFilePath(&conf), err)
-				continue
-			}
+				defer (func() {
+					err := fd.Close()
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "%v\n", err)
+					}
+				})()
 
-			if n != len(chunk.Data) {
-				fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(chunk.Data), n)
-				continue
-			}
+				n, err := fd.Write(chunk.Data)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", chunk.Seq, file.RelativeFilePath(&conf), err)
+					return
+				}
 
-			// bar, progress := file.GetProgress(c, 25, &conf)
-			// if lastPercentage < progress {
-			// 	fmt.Printf("\r%s", bar)
-			// 	lastPercentage = progress
-			// }
+				if n != len(chunk.Data) {
+					fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(chunk.Data), n)
+					return
+				}
+
+			}(&file, &chunk, &writeWg)
 
 		case ncproto.MsgFile:
 			file := message.(ncproto.File)

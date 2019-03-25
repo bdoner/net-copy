@@ -190,6 +190,6 @@ func init() {
 	sendCmd.MarkFlagRequired("port")
 
 	conf.ConnectionID = uuid.New()
-	conf.ReadBufferSize = 128 * 1024
+	conf.ReadBufferSize = 5
 
 }
