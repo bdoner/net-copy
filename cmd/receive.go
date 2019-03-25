@@ -133,7 +133,7 @@ func loop(srv *ncserver.Server) error {
 				return fmt.Errorf("unknown file chunk %v", chunk)
 			}
 
-			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_APPEND, 0775)
+			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_APPEND|os.O_WRONLY, 0775)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
