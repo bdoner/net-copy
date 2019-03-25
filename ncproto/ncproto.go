@@ -11,6 +11,9 @@ import (
 
 // MessageType determine how to handle the incoming message
 type MessageType uint8
+
+// IMessageType is the interface type that is sent using
+// gob encoding from client to server
 type IMessageType interface {
 	Type() MessageType
 }
@@ -20,9 +23,10 @@ const (
 	// client to the server.
 	MsgConfig MessageType = 0x0
 
-	// MsgFile denotes that the Data contains raw file bytes
+	// MsgFile is meta data about the coming file
 	MsgFile MessageType = 0x1
 
+	// MsgFileChunk tells the message is of type FileChunk
 	MsgFileChunk MessageType = 0x2
 
 	// MsgConnectionClose tells the server that everything is done and it can close the connection
@@ -39,6 +43,7 @@ type Config struct {
 	ReadBufferSize   uint32
 }
 
+// Type to satisfy IMessageType
 func (c Config) Type() MessageType {
 	return MsgConfig
 }
@@ -59,7 +64,8 @@ type File struct {
 	RelativePath string
 }
 
-func (c File) Type() MessageType {
+// Type to satisfy IMessageType
+func (f File) Type() MessageType {
 	return MsgFile
 }
 
@@ -71,12 +77,18 @@ type FileChunk struct {
 	Seq          int
 }
 
-func (c FileChunk) Type() MessageType {
+// Type to satisfy IMessageType
+func (f FileChunk) Type() MessageType {
 	return MsgFileChunk
 }
 
-// FullPath returns the absolute path of where a file should be located on disk according to a given config
-func (f *File) FullPath(c *Config) string {
+// FullFilePath returns the absolute path of where a file should be located on disk according to a given config
+func (f *File) FullFilePath(c *Config) string {
+	return filepath.Join(c.WorkingDirectory, f.RelativePath, f.Name)
+}
+
+// RelativeFilePath gives the path relative to the WorkingDirectory
+func (f *File) RelativeFilePath(c *Config) string {
 	return filepath.Join(c.WorkingDirectory, f.RelativePath, f.Name)
 }
 
@@ -95,6 +107,7 @@ type ConnectionClose struct {
 	ConnectionID uuid.UUID
 }
 
+// Type to satisfy IMessageType
 func (c ConnectionClose) Type() MessageType {
 	return MsgConnectionClose
 }

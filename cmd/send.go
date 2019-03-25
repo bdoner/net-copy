@@ -21,14 +21,17 @@
 package cmd
 
 import (
+	"container/list"
 	"encoding/gob"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+
+	"github.com/bdoner/net-copy/ncproto/ncclient"
 
 	"github.com/google/uuid"
 
@@ -48,79 +51,101 @@ var sendCmd = &cobra.Command{
 	sending all the files recursively found in the working-directory (-d).
 	Once done the sender signals to the receiver it is done and the connection is closed.`,
 	PreRun: setupWorkingDir,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 
-		conn := createConnection()
-		defer conn.Close()
-
-		enc := gob.NewEncoder(conn)
-
-		gob.Register(ncproto.Config{})
-		gob.Register(ncproto.File{})
-		gob.Register(ncproto.FileChunk{})
-		gob.Register(ncproto.ConnectionClose{})
-
-		sendMessage(enc, conf)
-		//enc.Encode(conf)
-
-		readBuffer := make([]byte, conf.ReadBufferSize)
-		files := make([]ncproto.File, 0)
-		collectFiles(conf.WorkingDirectory, &files)
-
-		for _, file := range files {
-			fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
-
-			fp, err := os.Open(file.FullPath(&conf))
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error opening file %s", filepath.Join(file.RelativePath, file.Name))
-			}
-
-			sendMessage(enc, file)
-			//enc.Encode(file)
-
-			sentChunks := 0
-			lastPercentage := 0
-			for {
-				n, err := fp.Read(readBuffer)
-				if n == 0 && err == io.EOF && sentChunks != 0 {
-					break
-				}
-
-				if err != nil && err != io.EOF {
-					fmt.Fprintf(os.Stderr, "error reading file %s", filepath.Join(file.RelativePath, file.Name))
-					break
-				}
-
-				fchunk := ncproto.FileChunk{
-					ID:           file.ID,
-					ConnectionID: conf.ConnectionID,
-					Data:         readBuffer[:n],
-					Seq:          sentChunks,
-				}
-
-				bar, progress := file.GetProgress(sentChunks, 25, &conf)
-				if lastPercentage < progress {
-					fmt.Printf("\r%s", bar)
-					lastPercentage = progress
-				}
-
-				sentChunks++
-				sendMessage(enc, fchunk)
-				//enc.Encode(fchunk)
-			}
-
-			fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
-
+		cln, err := ncclient.Connect(conf.Hostname, conf.Port)
+		if err != nil {
+			return err
 		}
 
-		sendMessage(enc, ncproto.ConnectionClose{
+		defer cln.Connection.Close()
+
+		cln.SendMessage(conf)
+
+		files := list.New()
+		collectFiles(conf.WorkingDirectory, files)
+
+		breakAll := false
+		for {
+			var wg sync.WaitGroup
+			for i := uint16(0); i < conf.Threads; i++ {
+				wg.Add(1)
+
+				e := files.Front()
+				if e == nil {
+					breakAll = true
+					break
+				}
+
+				file := e.Value.(ncproto.File)
+				files.Remove(e)
+
+				go sendFile(cln, &file, &wg)
+			}
+
+			wg.Wait()
+			if breakAll {
+				break
+			}
+		}
+
+		fmt.Println("closing connection")
+		cln.SendMessage(ncproto.ConnectionClose{
 			ConnectionID: conf.ConnectionID,
 		})
-		//enc.Encode(ncproto.ConnectionClose{ConnectionID: conf.ConnectionID})
+
+		return nil
 	},
 }
 
-func collectFiles(dir string, files *[]ncproto.File) {
+func sendFile(cln *ncclient.Client, file *ncproto.File, wg *sync.WaitGroup) {
+	fmt.Printf("%s (%s)\n", file.RelativeFilePath(&conf), file.PrettySize())
+
+	defer wg.Done()
+
+	fp, err := os.Open(file.FullFilePath(&conf))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error opening file %s", file.RelativeFilePath(&conf))
+	}
+
+	cln.SendMessage(file)
+
+	readBuffer := make([]byte, conf.ReadBufferSize)
+	sentChunks := 0
+	lastPercentage := 0
+	for {
+		n, err := fp.Read(readBuffer)
+		if n == 0 && err == io.EOF {
+			break
+		}
+
+		if err != nil && err != io.EOF {
+			fmt.Fprintf(os.Stderr, "error reading file %s", file.RelativeFilePath(&conf))
+			break
+		}
+
+		fchunk := ncproto.FileChunk{
+			ID:           file.ID,
+			ConnectionID: conf.ConnectionID,
+			Data:         readBuffer[:n],
+			Seq:          sentChunks,
+		}
+
+		bar, progress := file.GetProgress(sentChunks, 25, &conf)
+		if lastPercentage < progress {
+			fmt.Printf("\r%s", bar)
+			lastPercentage = progress
+		}
+
+		sentChunks++
+		cln.SendMessage(fchunk)
+		//enc.Encode(fchunk)
+	}
+
+	fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
+}
+
+func collectFiles(dir string, files *list.List) {
 	fs, err := ioutil.ReadDir(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading %s. %v\n", dir, err)
@@ -142,7 +167,8 @@ func collectFiles(dir string, files *[]ncproto.File) {
 				Name:         v.Name(),
 				RelativePath: rel,
 			}
-			*files = append(*files, nf)
+
+			files.PushBack(nf)
 		}
 	}
 
@@ -150,17 +176,6 @@ func collectFiles(dir string, files *[]ncproto.File) {
 
 func sendMessage(enc *gob.Encoder, msg ncproto.IMessageType) {
 	enc.Encode(&msg)
-}
-
-func createConnection() net.Conn {
-	connAddr := fmt.Sprintf("%s:%d", conf.Hostname, conf.Port)
-	conn, err := net.Dial("tcp", connAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(-1)
-	}
-
-	return conn
 }
 
 func init() {

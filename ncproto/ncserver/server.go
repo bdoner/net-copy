@@ -1,4 +1,4 @@
-package server
+package ncserver
 
 import (
 	"encoding/gob"

@@ -29,7 +29,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/bdoner/net-copy/ncproto"
-	"github.com/bdoner/net-copy/ncproto/server"
+	"github.com/bdoner/net-copy/ncproto/ncserver"
+
 	"github.com/spf13/cobra"
 )
 
@@ -76,7 +77,7 @@ var receiveCmd = &cobra.Command{
 		}
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		srv, err := server.Create(conf.Port)
+		srv, err := ncserver.Create(conf.Port)
 		if err != nil {
 			return err
 		}
@@ -99,7 +100,7 @@ var receiveCmd = &cobra.Command{
 	},
 }
 
-func loop(srv *server.Server) error {
+func loop(srv *ncserver.Server) error {
 	knownFiles = make(map[uuid.UUID]ncproto.File)
 
 	for {
@@ -132,7 +133,7 @@ func loop(srv *server.Server) error {
 				return fmt.Errorf("unknown file chunk %v", chunk)
 			}
 
-			fp, err := os.OpenFile(file.FullPath(&conf), os.O_APPEND, 0775)
+			fp, err := os.OpenFile(file.FullFilePath(&conf), os.O_APPEND, 0775)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
@@ -164,12 +165,12 @@ func loop(srv *server.Server) error {
 			fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
 			//chunks := int(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
 
-			err = os.MkdirAll(filepath.Dir(file.FullPath(&conf)), 0775)
+			err = os.MkdirAll(filepath.Dir(file.FullFilePath(&conf)), 0775)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 
-			_, err := os.Create(file.FullPath(&conf))
+			_, err := os.Create(file.FullFilePath(&conf))
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
