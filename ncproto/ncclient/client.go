@@ -3,7 +3,10 @@ package ncclient
 import (
 	"encoding/gob"
 	"fmt"
+	"io"
 	"net"
+	"os"
+	"sync"
 
 	"github.com/bdoner/net-copy/ncproto"
 )
@@ -27,6 +30,7 @@ func Connect(host string, port uint16) (*Client, error) {
 	gob.Register(ncproto.Config{})
 	gob.Register(ncproto.File{})
 	gob.Register(ncproto.FileChunk{})
+	gob.Register(ncproto.FileComplete{})
 	gob.Register(ncproto.ConnectionClose{})
 
 	client := Client{
@@ -40,4 +44,54 @@ func Connect(host string, port uint16) (*Client, error) {
 // SendMessage sends a gob encoded message
 func (c *Client) SendMessage(msg ncproto.IMessageType) error {
 	return c.Encoder.Encode(&msg)
+}
+
+// SendFile will send an entire File to the server
+func (c *Client) SendFile(file *ncproto.File, wg *sync.WaitGroup, conf *ncproto.Config) {
+	fmt.Printf("%s (%s)\n", file.RelativeFilePath(conf), file.PrettySize())
+
+	defer wg.Done()
+
+	fp, err := os.Open(file.FullFilePath(conf))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error opening file %s", file.RelativeFilePath(conf))
+	}
+
+	c.SendMessage(file)
+
+	readBuffer := make([]byte, conf.ReadBufferSize)
+	sentChunks := 0
+	//lastPercentage := 0
+	for {
+		n, err := fp.Read(readBuffer)
+		if n == 0 && err == io.EOF {
+			break
+		}
+
+		if err != nil && err != io.EOF {
+			fmt.Fprintf(os.Stderr, "error reading file %s", file.RelativeFilePath(conf))
+			break
+		}
+
+		fchunk := ncproto.FileChunk{
+			ID:           file.ID,
+			ConnectionID: conf.ConnectionID,
+			Data:         readBuffer[:n],
+			Seq:          sentChunks,
+		}
+
+		// bar, progress := file.GetProgress(sentChunks, 25, &conf)
+		// if lastPercentage < progress {
+		// 	fmt.Printf("\r%s", bar)
+		// 	lastPercentage = progress
+		// }
+
+		sentChunks++
+		c.SendMessage(fchunk)
+		//enc.Encode(fchunk)
+	}
+
+	c.SendMessage(ncproto.FileComplete{ConnectionID: conf.ConnectionID, ID: file.ID})
+
+	//fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
 }

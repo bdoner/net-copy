@@ -25,7 +25,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/google/uuid"
 
@@ -91,11 +90,13 @@ var receiveCmd = &cobra.Command{
 			return err
 		}
 
-		if cConf.Type() != ncproto.MsgConfig {
+		var c ncproto.Config
+		var ok bool
+		if c, ok = cConf.(ncproto.Config); !ok {
 			return fmt.Errorf("initial message was not of type config")
 		}
 
-		conf.Merge(cConf.(ncproto.Config))
+		conf.Merge(c)
 		fmt.Printf("Accepted connection from %s\n", srv.Connection.RemoteAddr().String())
 		return loop(srv)
 	},
@@ -103,7 +104,6 @@ var receiveCmd = &cobra.Command{
 
 func loop(srv *ncserver.Server) error {
 	knownFiles = make(map[uuid.UUID]ncproto.File)
-	var writeWg sync.WaitGroup
 
 	for {
 		var message ncproto.IMessageType
@@ -112,9 +112,9 @@ func loop(srv *ncserver.Server) error {
 			return err
 		}
 
-		switch message.Type() {
-		case ncproto.MsgConnectionClose:
-			cc := message.(ncproto.ConnectionClose) //.(ncproto.ConnectionClose)
+		switch message.(type) {
+		case ncproto.ConnectionClose:
+			cc := message.(ncproto.ConnectionClose)
 
 			if cc.ConnectionID != conf.ConnectionID {
 				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
@@ -122,10 +122,9 @@ func loop(srv *ncserver.Server) error {
 			}
 			fmt.Println("client says done. closing connection.")
 			srv.Connection.Close()
-			writeWg.Wait()
 			os.Exit(0)
 
-		case ncproto.MsgFileChunk:
+		case ncproto.FileChunk:
 			chunk := message.(ncproto.FileChunk)
 			if chunk.ConnectionID != conf.ConnectionID {
 				fmt.Fprintf(os.Stderr, "got file chunk from %s but expected it from someone else\n", conf.ConnectionID.String())
@@ -136,36 +135,9 @@ func loop(srv *ncserver.Server) error {
 				return fmt.Errorf("unknown file chunk %v", chunk)
 			}
 
-			writeWg.Add(1)
-			go func(file *ncproto.File, chunk *ncproto.FileChunk, wwg *sync.WaitGroup) {
+			file.ChunkQueue <- chunk
 
-				defer wwg.Done()
-				fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_APPEND|os.O_WRONLY, 0775)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "%v\n", err)
-				}
-
-				defer (func() {
-					err := fd.Close()
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "%v\n", err)
-					}
-				})()
-
-				n, err := fd.Write(chunk.Data)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", chunk.Seq, file.RelativeFilePath(&conf), err)
-					return
-				}
-
-				if n != len(chunk.Data) {
-					fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(chunk.Data), n)
-					return
-				}
-
-			}(&file, &chunk, &writeWg)
-
-		case ncproto.MsgFile:
+		case ncproto.File:
 			file := message.(ncproto.File)
 
 			if file.ConnectionID != conf.ConnectionID {
@@ -173,7 +145,6 @@ func loop(srv *ncserver.Server) error {
 				continue
 			}
 			fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
-			//chunks := int(math.Ceil(float64(file.FileSize / int64(conf.ReadBufferSize))))
 
 			err = os.MkdirAll(filepath.Dir(file.FullFilePath(&conf)), 0775)
 			if err != nil {
@@ -181,32 +152,58 @@ func loop(srv *ncserver.Server) error {
 			}
 
 			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_CREATE, 0775)
-			defer (func() {
-				err := fd.Close()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "%v\n", err)
-				}
-			})()
-
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 
+			file.FileDescriptor = fd
+			file.ChunkQueue = make(chan ncproto.FileChunk, file.FileSize/int64(conf.ReadBufferSize))
+			file.Complete = make(chan bool, 1)
 			knownFiles[file.ID] = file
 
-			// lastPercentage := 0
-			// var receivedChunk ncproto.FileChunk
-			// for c := int(0); c <= chunks; c++ {
-			// 	err := srv.GetNextMessage(&receivedChunk)
-			// 	if err != nil {
-			// 		fmt.Fprintf(os.Stderr, "error reading chunk %d of %d\n", c, chunks)
-			// 		continue
-			// 	}
+			go func(iFile *ncproto.File) {
+				for {
 
-			// }
-			// fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
+					chunk := <-iFile.ChunkQueue
 
-		case ncproto.MsgConfig:
+					n, err := iFile.FileDescriptor.Write(chunk.Data)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", chunk.Seq, iFile.RelativeFilePath(&conf), err)
+						return
+					}
+
+					if n != len(chunk.Data) {
+						fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(chunk.Data), n)
+						return
+					}
+
+					if chunk.Seq >= int(iFile.FileSize/int64(conf.ReadBufferSize)) {
+						file.Complete <- true
+						break
+					}
+				}
+			}(&file)
+
+		// lastPercentage := 0
+		// var receivedChunk ncproto.FileChunk
+		// for c := int(0); c <= chunks; c++ {
+		// 	err := srv.GetNextMessage(&receivedChunk)
+		// 	if err != nil {
+		// 		fmt.Fprintf(os.Stderr, "error reading chunk %d of %d\n", c, chunks)
+		// 		continue
+		// 	}
+
+		// }
+		// fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
+		case ncproto.FileComplete:
+			completeMsg := message.(ncproto.FileComplete)
+			file := knownFiles[completeMsg.ID]
+			<-file.Complete
+			close(file.ChunkQueue)
+			close(file.Complete)
+			file.FileDescriptor.Close()
+
+		case ncproto.Config:
 			fmt.Fprintf(os.Stderr, "initial MsgConfig already received.\n")
 			continue
 		}

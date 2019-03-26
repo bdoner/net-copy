@@ -35,6 +35,7 @@ func Create(port uint16) (*Server, error) {
 	gob.Register(ncproto.Config{})
 	gob.Register(ncproto.File{})
 	gob.Register(ncproto.FileChunk{})
+	gob.Register(ncproto.FileComplete{})
 	gob.Register(ncproto.ConnectionClose{})
 
 	s := Server{

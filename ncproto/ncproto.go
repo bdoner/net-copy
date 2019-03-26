@@ -2,6 +2,7 @@ package ncproto
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"path/filepath"
 	"strings"
@@ -14,9 +15,7 @@ type MessageType uint8
 
 // IMessageType is the interface type that is sent using
 // gob encoding from client to server
-type IMessageType interface {
-	Type() MessageType
-}
+type IMessageType interface{}
 
 const (
 	// MsgConfig is the initial message being sent from the
@@ -43,11 +42,6 @@ type Config struct {
 	ReadBufferSize   uint32
 }
 
-// Type to satisfy IMessageType
-func (c Config) Type() MessageType {
-	return MsgConfig
-}
-
 // Merge two Config's
 // The calling struct is the resulting struct
 func (c *Config) Merge(conf Config) {
@@ -57,16 +51,14 @@ func (c *Config) Merge(conf Config) {
 
 // File describes a file to be sent/received
 type File struct {
-	ID           uuid.UUID
-	ConnectionID uuid.UUID
-	FileSize     int64
-	Name         string
-	RelativePath string
-}
-
-// Type to satisfy IMessageType
-func (f File) Type() MessageType {
-	return MsgFile
+	ID             uuid.UUID
+	ConnectionID   uuid.UUID
+	FileSize       int64
+	Name           string
+	RelativePath   string
+	FileDescriptor io.WriteCloser
+	ChunkQueue     chan FileChunk
+	Complete       chan bool
 }
 
 // FileChunk is the actual file data being sent
@@ -77,9 +69,10 @@ type FileChunk struct {
 	Seq          int
 }
 
-// Type to satisfy IMessageType
-func (f FileChunk) Type() MessageType {
-	return MsgFileChunk
+// FileComplete is sent when all chunks have been transfered
+type FileComplete struct {
+	ID           uuid.UUID
+	ConnectionID uuid.UUID
 }
 
 // FullFilePath returns the absolute path of where a file should be located on disk according to a given config
@@ -105,11 +98,6 @@ func (f *File) GetProgress(count, width int, conf *Config) (string, int) {
 // ConnectionClose closes the connection when sent from client to server
 type ConnectionClose struct {
 	ConnectionID uuid.UUID
-}
-
-// Type to satisfy IMessageType
-func (c ConnectionClose) Type() MessageType {
-	return MsgConnectionClose
 }
 
 // PrettySize returns a human readable file size

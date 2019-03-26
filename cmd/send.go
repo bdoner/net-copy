@@ -24,11 +24,9 @@ import (
 	"container/list"
 	"encoding/gob"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/bdoner/net-copy/ncproto/ncclient"
@@ -81,7 +79,7 @@ var sendCmd = &cobra.Command{
 				file := e.Value.(ncproto.File)
 				files.Remove(e)
 
-				go sendFile(cln, &file, &wg)
+				go cln.SendFile(&file, &wg, &conf)
 			}
 
 			wg.Wait()
@@ -97,53 +95,6 @@ var sendCmd = &cobra.Command{
 
 		return nil
 	},
-}
-
-func sendFile(cln *ncclient.Client, file *ncproto.File, wg *sync.WaitGroup) {
-	fmt.Printf("%s (%s)\n", file.RelativeFilePath(&conf), file.PrettySize())
-
-	defer wg.Done()
-
-	fp, err := os.Open(file.FullFilePath(&conf))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error opening file %s", file.RelativeFilePath(&conf))
-	}
-
-	cln.SendMessage(file)
-
-	readBuffer := make([]byte, conf.ReadBufferSize)
-	sentChunks := 0
-	lastPercentage := 0
-	for {
-		n, err := fp.Read(readBuffer)
-		if n == 0 && err == io.EOF {
-			break
-		}
-
-		if err != nil && err != io.EOF {
-			fmt.Fprintf(os.Stderr, "error reading file %s", file.RelativeFilePath(&conf))
-			break
-		}
-
-		fchunk := ncproto.FileChunk{
-			ID:           file.ID,
-			ConnectionID: conf.ConnectionID,
-			Data:         readBuffer[:n],
-			Seq:          sentChunks,
-		}
-
-		bar, progress := file.GetProgress(sentChunks, 25, &conf)
-		if lastPercentage < progress {
-			fmt.Printf("\r%s", bar)
-			lastPercentage = progress
-		}
-
-		sentChunks++
-		cln.SendMessage(fchunk)
-		//enc.Encode(fchunk)
-	}
-
-	fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
 }
 
 func collectFiles(dir string, files *list.List) {
@@ -190,6 +141,6 @@ func init() {
 	sendCmd.MarkFlagRequired("port")
 
 	conf.ConnectionID = uuid.New()
-	conf.ReadBufferSize = 5
+	conf.ReadBufferSize = 128 * 1024
 
 }
