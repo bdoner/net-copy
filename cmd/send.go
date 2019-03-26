@@ -63,7 +63,7 @@ var sendCmd = &cobra.Command{
 		files := list.New()
 		collectFiles(conf.WorkingDirectory, files)
 
-		breakAll := false
+	outer:
 		for {
 			var wg sync.WaitGroup
 			for i := uint16(0); i < conf.Threads; i++ {
@@ -71,9 +71,8 @@ var sendCmd = &cobra.Command{
 
 				e := files.Front()
 				if e == nil {
-					breakAll = true
 					wg.Done()
-					break
+					break outer
 				}
 
 				file := e.Value.(ncproto.File)
@@ -83,9 +82,6 @@ var sendCmd = &cobra.Command{
 			}
 
 			wg.Wait()
-			if breakAll {
-				break
-			}
 		}
 
 		fmt.Println("closing connection")
