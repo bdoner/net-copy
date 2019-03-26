@@ -151,7 +151,7 @@ func loop(srv *ncserver.Server) error {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 
-			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_CREATE, 0775)
+			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0775)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
