@@ -48,7 +48,9 @@ func (c *Client) SendMessage(msg ncproto.IMessageType) error {
 
 // SendFile will send an entire File to the server
 func (c *Client) SendFile(file *ncproto.File, wg *sync.WaitGroup, conf *ncproto.Config) {
-	fmt.Printf("%s (%s)\n", file.RelativeFilePath(conf), file.PrettySize())
+	if !conf.Quiet {
+		fmt.Printf("%s (%s)\n", file.RelativeFilePath(conf), file.PrettySize())
+	}
 
 	defer wg.Done()
 

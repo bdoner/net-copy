@@ -133,6 +133,7 @@ func init() {
 	sendCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "the port to connect to")
 	sendCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "the directory to copy files from")
 	sendCmd.Flags().Uint16VarP(&conf.Threads, "threads", "t", 1, "define how many concurrent transfers to run")
+	sendCmd.Flags().BoolVarP(&conf.Quiet, "quiet", "q", false, "don't print each sent file nor transfer progress")
 	sendCmd.MarkFlagRequired("host")
 	sendCmd.MarkFlagRequired("port")
 

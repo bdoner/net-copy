@@ -144,7 +144,9 @@ func loop(srv *ncserver.Server) error {
 				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
-			fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
+			if !conf.Quiet {
+				fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
+			}
 
 			err = os.MkdirAll(filepath.Dir(file.FullFilePath(&conf)), 0775)
 			if err != nil {
@@ -215,5 +217,6 @@ func init() {
 
 	receiveCmd.Flags().Uint16VarP(&conf.Port, "port", "p", 0, "set the port to listen to. If not set a random, available port is selected")
 	receiveCmd.Flags().StringVarP(&conf.WorkingDirectory, "working-dir", "d", ".", "set the directory to output files to")
+	receiveCmd.Flags().BoolVarP(&conf.Quiet, "quiet", "q", false, "don't print each received file nor transfer progress")
 
 }

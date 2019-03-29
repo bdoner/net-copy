@@ -40,6 +40,7 @@ type Config struct {
 	Threads          uint16
 	ConnectionID     uuid.UUID
 	ReadBufferSize   uint32
+	Quiet            bool
 }
 
 // Merge two Config's
