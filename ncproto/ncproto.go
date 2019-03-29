@@ -10,27 +10,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// MessageType determine how to handle the incoming message
-type MessageType uint8
-
-// IMessageType is the interface type that is sent using
+// INetCopyMessage is the interface type that is sent using
 // gob encoding from client to server
-type IMessageType interface{}
-
-const (
-	// MsgConfig is the initial message being sent from the
-	// client to the server.
-	MsgConfig MessageType = 0x0
-
-	// MsgFile is meta data about the coming file
-	MsgFile MessageType = 0x1
-
-	// MsgFileChunk tells the message is of type FileChunk
-	MsgFileChunk MessageType = 0x2
-
-	// MsgConnectionClose tells the server that everything is done and it can close the connection
-	MsgConnectionClose MessageType = 0x3
-)
+type INetCopyMessage interface{}
 
 // Config holds configuration for both sender and receiver
 type Config struct {

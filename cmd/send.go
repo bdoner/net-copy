@@ -22,7 +22,6 @@ package cmd
 
 import (
 	"container/list"
-	"encoding/gob"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -63,9 +62,11 @@ var sendCmd = &cobra.Command{
 		files := list.New()
 		collectFiles(conf.WorkingDirectory, files)
 
+		fmt.Printf("found %d files to transfer\n", files.Len())
+		var wg sync.WaitGroup
 	outer:
 		for {
-			var wg sync.WaitGroup
+
 			for i := uint16(0); i < conf.Threads; i++ {
 				wg.Add(1)
 
@@ -80,11 +81,12 @@ var sendCmd = &cobra.Command{
 
 				go cln.SendFile(&file, &wg, &conf)
 			}
-
 			wg.Wait()
 		}
 
-		fmt.Println("closing connection")
+		wg.Wait()
+
+		fmt.Println("all files sent. closing connection")
 		cln.SendMessage(ncproto.ConnectionClose{
 			ConnectionID: conf.ConnectionID,
 		})
@@ -120,10 +122,6 @@ func collectFiles(dir string, files *list.List) {
 		}
 	}
 
-}
-
-func sendMessage(enc *gob.Encoder, msg ncproto.IMessageType) {
-	enc.Encode(&msg)
 }
 
 func init() {

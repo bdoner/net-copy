@@ -84,7 +84,7 @@ var receiveCmd = &cobra.Command{
 
 		defer srv.Connection.Close()
 
-		var cConf ncproto.IMessageType
+		var cConf ncproto.INetCopyMessage
 		err = srv.GetNextMessage(&cConf)
 		if err != nil {
 			return err
@@ -106,7 +106,7 @@ func loop(srv *ncserver.Server) error {
 	knownFiles = make(map[uuid.UUID]ncproto.File)
 
 	for {
-		var message ncproto.IMessageType
+		var message ncproto.INetCopyMessage
 		err := srv.GetNextMessage(&message)
 		if err != nil {
 			return err

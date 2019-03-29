@@ -42,17 +42,18 @@ func Connect(host string, port uint16) (*Client, error) {
 }
 
 // SendMessage sends a gob encoded message
-func (c *Client) SendMessage(msg ncproto.IMessageType) error {
+func (c *Client) SendMessage(msg ncproto.INetCopyMessage) error {
 	return c.Encoder.Encode(&msg)
 }
 
 // SendFile will send an entire File to the server
 func (c *Client) SendFile(file *ncproto.File, wg *sync.WaitGroup, conf *ncproto.Config) {
+
+	defer wg.Done()
+
 	if !conf.Quiet {
 		fmt.Printf("%s (%s)\n", file.RelativeFilePath(conf), file.PrettySize())
 	}
-
-	defer wg.Done()
 
 	fp, err := os.Open(file.FullFilePath(conf))
 	if err != nil {
