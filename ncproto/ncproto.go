@@ -38,7 +38,7 @@ type File struct {
 	ConnectionID   uuid.UUID
 	FileSize       int64
 	Name           string
-	RelativePath   string
+	RelativePath   []string
 	FileDescriptor io.WriteCloser
 	ChunkQueue     chan FileChunk
 	Complete       chan bool
@@ -60,12 +60,12 @@ type FileComplete struct {
 
 // FullFilePath returns the absolute path of where a file should be located on disk according to a given config
 func (f *File) FullFilePath(c *Config) string {
-	return filepath.Join(c.WorkingDirectory, f.RelativePath, f.Name)
+	return filepath.Join(c.WorkingDirectory, filepath.Join(f.RelativePath...), f.Name)
 }
 
 // RelativeFilePath gives the path relative to the WorkingDirectory
 func (f *File) RelativeFilePath(c *Config) string {
-	return filepath.Join(f.RelativePath, f.Name)
+	return filepath.Join(filepath.Join(f.RelativePath...), f.Name)
 }
 
 // GetProgress returns the progress of a file transfer as an ascii bar and a number from 0-100

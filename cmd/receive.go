@@ -145,7 +145,7 @@ func loop(srv *ncserver.Server) error {
 				continue
 			}
 			if !conf.Quiet {
-				fmt.Printf("%s (%s)\n", filepath.Join(file.RelativePath, file.Name), file.PrettySize())
+				fmt.Printf("%s (%s)\n", filepath.Join(filepath.Join(file.RelativePath...), file.Name), file.PrettySize())
 			}
 
 			err = os.MkdirAll(filepath.Dir(file.FullFilePath(&conf)), 0775)

@@ -84,6 +84,7 @@ var sendCmd = &cobra.Command{
 			wg.Wait()
 		}
 
+		fmt.Println("waiting for last sends to complete..")
 		wg.Wait()
 
 		fmt.Println("all files sent. closing connection")
@@ -115,7 +116,7 @@ func collectFiles(dir string, files *list.List) {
 				ConnectionID: conf.ConnectionID,
 				FileSize:     v.Size(),
 				Name:         v.Name(),
-				RelativePath: rel,
+				RelativePath: filepath.SplitList(rel),
 			}
 
 			files.PushBack(nf)
