@@ -93,7 +93,7 @@ var sendCmd = &cobra.Command{
 func collectFiles(dir string, files *[]ncproto.File) {
 	fs, err := ioutil.ReadDir(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading %s. %v\n", dir, err)
+		fmt.Fprintf(os.Stderr, "collectFiles: error reading %s\n%v\n", dir, err)
 	}
 
 	for _, v := range fs {
@@ -102,7 +102,7 @@ func collectFiles(dir string, files *[]ncproto.File) {
 		} else {
 			rel, err := filepath.Rel(conf.WorkingDirectory, dir)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
+				fmt.Fprintf(os.Stderr, "collectFiles: %v\n", err)
 				continue
 			}
 			nf := ncproto.File{

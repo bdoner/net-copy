@@ -57,23 +57,23 @@ var receiveCmd = &cobra.Command{
 				fmt.Printf("Output directory does not exists. creating %s\n", conf.WorkingDirectory)
 				err := os.MkdirAll(conf.WorkingDirectory, 0775)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "could not create output directory: %v\n", err)
+					fmt.Fprintf(os.Stderr, "PreRun: could not create output directory: %v\n", err)
 					os.Exit(-1)
 				}
 			} else {
-				fmt.Fprintf(os.Stderr, "could not open output directory: %v\n", err)
+				fmt.Fprintf(os.Stderr, "PreRun: could not open output directory: %v\n", err)
 				os.Exit(-1)
 			}
 		}
 
 		wdFiles, err := ioutil.ReadDir(conf.WorkingDirectory)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "could not open output directory: %v\n", err)
+			fmt.Fprintf(os.Stderr, "PreRun: could not open output directory: %v\n", err)
 			os.Exit(-1)
 		}
 
 		if 0 < len(wdFiles) {
-			fmt.Fprintf(os.Stderr, "can only output into an empty directory\n%s is not empty\n", conf.WorkingDirectory)
+			fmt.Fprintf(os.Stderr, "PreRun: can only output into an empty directory\n%s is not empty\n", conf.WorkingDirectory)
 			os.Exit(-1)
 		}
 	},
@@ -120,22 +120,21 @@ outer:
 		case ncproto.FileChunk:
 			chunk := message.(ncproto.FileChunk)
 			if chunk.ConnectionID != conf.ConnectionID {
-				fmt.Fprintf(os.Stderr, "got file chunk from %s but expected it from someone else\n", conf.ConnectionID.String())
+				fmt.Fprintf(os.Stderr, "loop: got file chunk from %s but expected it from someone else\n", conf.ConnectionID.String())
 				continue
 			}
 			file, found := knownFiles[chunk.ID]
 			if !found {
-				return fmt.Errorf("unknown file chunk %v", chunk)
+				return fmt.Errorf("unknown file for chunk %v", chunk)
 			}
 
-			fmt.Printf("queueing chunk %d for file %s\n", chunk.Seq, file.Name)
 			file.ChunkQueue <- chunk
 
 		case ncproto.File:
 			file := message.(ncproto.File)
 
 			if file.ConnectionID != conf.ConnectionID {
-				fmt.Fprintf(os.Stderr, "got file from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
+				fmt.Fprintf(os.Stderr, "loop: got file from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
 
@@ -145,12 +144,12 @@ outer:
 
 			err = os.MkdirAll(filepath.Dir(file.FullFilePath(&conf)), 0775)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
+				fmt.Fprintf(os.Stderr, "loop: %v\n", err)
 			}
 
 			fd, err := os.OpenFile(file.FullFilePath(&conf), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0775)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
+				fmt.Fprintf(os.Stderr, "loop: %v\n", err)
 			}
 
 			file.FileDescriptor = fd
@@ -166,16 +165,14 @@ outer:
 
 				for chunk := range iFile.ChunkQueue {
 
-					fmt.Printf("de queueing chunk %d for file %s\n", chunk.Seq, iFile.Name)
-
 					n, err := iFile.FileDescriptor.Write(chunk.Data)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "error writing chunk %d to file %s: %v\n", chunk.Seq, iFile.RelativeFilePath(&conf), err)
+						fmt.Fprintf(os.Stderr, "loop: error writing chunk %d to file %s: %v\n", chunk.Seq, iFile.RelativeFilePath(&conf), err)
 						return
 					}
 
 					if n != len(chunk.Data) {
-						fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(chunk.Data), n)
+						fmt.Fprintf(os.Stderr, "loop: expected to write %d bytes but wrote %d bytes\n", len(chunk.Data), n)
 						return
 					}
 				}
@@ -196,7 +193,7 @@ outer:
 			completeMsg := message.(ncproto.FileComplete)
 
 			if completeMsg.ConnectionID != conf.ConnectionID {
-				fmt.Fprintf(os.Stderr, "got complete message from %s but expected it from %s\n", completeMsg.ConnectionID.String(), conf.ConnectionID.String())
+				fmt.Fprintf(os.Stderr, "loop: got complete message from %s but expected it from %s\n", completeMsg.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
 
@@ -207,7 +204,7 @@ outer:
 			cc := message.(ncproto.ConnectionClose)
 
 			if cc.ConnectionID != conf.ConnectionID {
-				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
+				fmt.Fprintf(os.Stderr, "loop: got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
 			fmt.Println("client says done. closing connection.")
@@ -216,7 +213,7 @@ outer:
 			//os.Exit(0)
 
 		case ncproto.Config:
-			fmt.Fprintf(os.Stderr, "initial MsgConfig already received.\n")
+			fmt.Fprintf(os.Stderr, "loop: initial MsgConfig already received.\n")
 			continue
 		}
 	}

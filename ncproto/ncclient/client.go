@@ -101,7 +101,7 @@ func (c *Client) SendFile(file *ncproto.File, wg *sync.WaitGroup, conf *ncproto.
 		}
 
 		if err != nil && err != io.EOF {
-			fmt.Fprintf(os.Stderr, "error reading file %s\n", file.RelativeFilePath(conf))
+			fmt.Fprintf(os.Stderr, "SendFile: error reading file %s\n", file.RelativeFilePath(conf))
 			break
 		}
 
