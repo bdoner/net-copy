@@ -21,7 +21,6 @@
 package cmd
 
 import (
-	"container/list"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -59,35 +58,30 @@ var sendCmd = &cobra.Command{
 
 		cln.SendMessage(conf)
 
-		files := list.New()
-		collectFiles(conf.WorkingDirectory, files)
+		files := make([]ncproto.File, 0)
+		collectFiles(conf.WorkingDirectory, &files)
 
-		fmt.Printf("found %d files to transfer\n", files.Len())
+		fmt.Printf("found %d files to transfer\n", len(files))
+
 		var wg sync.WaitGroup
-	outer:
-		for {
-
-			for i := uint16(0); i < conf.Threads; i++ {
-				wg.Add(1)
-
-				e := files.Front()
-				if e == nil {
-					wg.Done()
-					break outer
+		filesChan := make(chan ncproto.File)
+		for i := uint16(0); i < conf.Threads; i++ {
+			go func() {
+				for file := range filesChan {
+					cln.SendFile(&file, &wg, &conf)
 				}
-
-				file := e.Value.(ncproto.File)
-				files.Remove(e)
-
-				go cln.SendFile(&file, &wg, &conf)
-			}
-			wg.Wait()
+			}()
 		}
 
-		fmt.Println("waiting for last sends to complete..")
+		for _, file := range files {
+			filesChan <- file
+		}
+		close(filesChan)
+
+		fmt.Println("waiting for last transfers to complete..")
 		wg.Wait()
 
-		fmt.Println("all files sent. closing connection")
+		fmt.Println("all files sent. sending connection close")
 		cln.SendMessage(ncproto.ConnectionClose{
 			ConnectionID: conf.ConnectionID,
 		})
@@ -96,7 +90,7 @@ var sendCmd = &cobra.Command{
 	},
 }
 
-func collectFiles(dir string, files *list.List) {
+func collectFiles(dir string, files *[]ncproto.File) {
 	fs, err := ioutil.ReadDir(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading %s. %v\n", dir, err)
@@ -119,7 +113,7 @@ func collectFiles(dir string, files *list.List) {
 				RelativePath: filepath.SplitList(rel),
 			}
 
-			files.PushBack(nf)
+			*files = append(*files, nf)
 		}
 	}
 

@@ -25,11 +25,12 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/google/uuid"
 
 	"github.com/bdoner/net-copy/ncproto"
-	"github.com/bdoner/net-copy/ncproto/ncserver"
+	"github.com/bdoner/net-copy/ncproto/ncclient"
 
 	"github.com/spf13/cobra"
 )
@@ -77,7 +78,7 @@ var receiveCmd = &cobra.Command{
 		}
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		srv, err := ncserver.Create(conf.Port)
+		srv, err := ncclient.Listen(conf.Port)
 		if err != nil {
 			return err
 		}
@@ -102,9 +103,11 @@ var receiveCmd = &cobra.Command{
 	},
 }
 
-func loop(srv *ncserver.Server) error {
+func loop(srv *ncclient.Client) error {
 	knownFiles = make(map[uuid.UUID]ncproto.File)
+	var fwg sync.WaitGroup
 
+outer:
 	for {
 		var message ncproto.INetCopyMessage
 		err := srv.GetNextMessage(&message)
@@ -113,16 +116,6 @@ func loop(srv *ncserver.Server) error {
 		}
 
 		switch message.(type) {
-		case ncproto.ConnectionClose:
-			cc := message.(ncproto.ConnectionClose)
-
-			if cc.ConnectionID != conf.ConnectionID {
-				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
-				continue
-			}
-			fmt.Println("client says done. closing connection.")
-			srv.Connection.Close()
-			os.Exit(0)
 
 		case ncproto.FileChunk:
 			chunk := message.(ncproto.FileChunk)
@@ -135,15 +128,17 @@ func loop(srv *ncserver.Server) error {
 				return fmt.Errorf("unknown file chunk %v", chunk)
 			}
 
+			fmt.Printf("queueing chunk %d for file %s\n", chunk.Seq, file.Name)
 			file.ChunkQueue <- chunk
 
 		case ncproto.File:
 			file := message.(ncproto.File)
 
 			if file.ConnectionID != conf.ConnectionID {
-				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
+				fmt.Fprintf(os.Stderr, "got file from %s but expected it from %s\n", file.ConnectionID.String(), conf.ConnectionID.String())
 				continue
 			}
+
 			if !conf.Quiet {
 				fmt.Printf("%s (%s)\n", filepath.Join(filepath.Join(file.RelativePath...), file.Name), file.PrettySize())
 			}
@@ -159,14 +154,19 @@ func loop(srv *ncserver.Server) error {
 			}
 
 			file.FileDescriptor = fd
-			file.ChunkQueue = make(chan ncproto.FileChunk, file.FileSize/int64(conf.ReadBufferSize))
-			file.Complete = make(chan bool, 1)
+			file.ChunkQueue = make(chan ncproto.FileChunk)
 			knownFiles[file.ID] = file
 
-			go func(iFile *ncproto.File) {
-				for {
+			fwg.Add(1)
 
-					chunk := <-iFile.ChunkQueue
+			go func(iFile *ncproto.File, ifwg *sync.WaitGroup) {
+
+				defer ifwg.Done()
+				defer iFile.FileDescriptor.Close()
+
+				for chunk := range iFile.ChunkQueue {
+
+					fmt.Printf("de queueing chunk %d for file %s\n", chunk.Seq, iFile.Name)
 
 					n, err := iFile.FileDescriptor.Write(chunk.Data)
 					if err != nil {
@@ -178,13 +178,8 @@ func loop(srv *ncserver.Server) error {
 						fmt.Fprintf(os.Stderr, "expected to write %d bytes but wrote %d bytes\n", len(chunk.Data), n)
 						return
 					}
-
-					if chunk.Seq >= int(iFile.FileSize/int64(conf.ReadBufferSize)) {
-						file.Complete <- true
-						break
-					}
 				}
-			}(&file)
+			}(&file, &fwg)
 
 		// lastPercentage := 0
 		// var receivedChunk ncproto.FileChunk
@@ -199,17 +194,36 @@ func loop(srv *ncserver.Server) error {
 		// fmt.Printf("\r%s>\n", strings.Repeat("#", 25))
 		case ncproto.FileComplete:
 			completeMsg := message.(ncproto.FileComplete)
+
+			if completeMsg.ConnectionID != conf.ConnectionID {
+				fmt.Fprintf(os.Stderr, "got complete message from %s but expected it from %s\n", completeMsg.ConnectionID.String(), conf.ConnectionID.String())
+				continue
+			}
+
 			file := knownFiles[completeMsg.ID]
-			<-file.Complete
 			close(file.ChunkQueue)
-			close(file.Complete)
-			file.FileDescriptor.Close()
+
+		case ncproto.ConnectionClose:
+			cc := message.(ncproto.ConnectionClose)
+
+			if cc.ConnectionID != conf.ConnectionID {
+				fmt.Fprintf(os.Stderr, "got close message from %s but expected it from %s\n", cc.ConnectionID.String(), conf.ConnectionID.String())
+				continue
+			}
+			fmt.Println("client says done. closing connection.")
+			//srv.Connection.Close()
+			break outer
+			//os.Exit(0)
 
 		case ncproto.Config:
 			fmt.Fprintf(os.Stderr, "initial MsgConfig already received.\n")
 			continue
 		}
 	}
+
+	fmt.Println("waiting for all files to be written")
+	fwg.Wait()
+	return nil
 }
 
 func init() {

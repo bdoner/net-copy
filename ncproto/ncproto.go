@@ -41,7 +41,7 @@ type File struct {
 	RelativePath   []string
 	FileDescriptor io.WriteCloser
 	ChunkQueue     chan FileChunk
-	Complete       chan bool
+	//Complete       chan bool
 }
 
 // FileChunk is the actual file data being sent
@@ -87,11 +87,11 @@ type ConnectionClose struct {
 func (f *File) PrettySize() string {
 	ffs := float64(f.FileSize)
 	if 1000000000 < f.FileSize {
-		return fmt.Sprintf("%.3fGB", ffs/1000000000.0)
+		return fmt.Sprintf("%.2fGB", ffs/1000000000.0)
 	} else if 1000000 < f.FileSize {
-		return fmt.Sprintf("%.3fMB", ffs/1000000.0)
+		return fmt.Sprintf("%.2fMB", ffs/1000000.0)
 	} else if 1000 < f.FileSize {
-		return fmt.Sprintf("%.3fKB", ffs/1000.0)
+		return fmt.Sprintf("%.2fKB", ffs/1000.0)
 	}
 	return fmt.Sprintf("%.0fB", ffs)
 
